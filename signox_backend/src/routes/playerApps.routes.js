@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getDownloadUrl, trackDownload } = require('../controllers/playerApps.controller');
+const { getDownloadUrl, trackDownload, getSSSPWidget } = require('../controllers/playerApps.controller');
 const { requireAuth } = require('../middleware/auth.middleware');
 
 /**
@@ -10,6 +10,13 @@ const { requireAuth } = require('../middleware/auth.middleware');
  * @query   type - 'android' or 'tizen'
  */
 router.get('/download-url', requireAuth, getDownloadUrl);
+
+/**
+ * @route   GET /api/player-apps/sssp-widget
+ * @desc    Get SSSP widget configuration for Samsung displays
+ * @access  Public (Samsung displays need direct access)
+ */
+router.get('/sssp-widget', getSSSPWidget);
 
 /**
  * @route   POST /api/player-apps/track-download

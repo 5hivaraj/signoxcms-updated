@@ -185,6 +185,8 @@ app.use('/uploads', express.static('public/uploads', {
       '.png': 'image/png',
       '.gif': 'image/gif',
       '.webp': 'image/webp',
+      '.wgt': 'application/zip',  // .wgt files are ZIP archives
+      '.xml': 'application/xml; charset=utf-8',
     };
 
     for (const ext in map) {
@@ -194,6 +196,31 @@ app.use('/uploads', express.static('public/uploads', {
     }
 
     res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+  },
+}));
+
+// Serve player app downloads (APK, WGT, widget.xml)
+app.use('/downloads', express.static('../signox_frontend/public/downloads', {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.wgt')) {
+      // Samsung SSSP accepts multiple MIME types for .wgt files
+      // Using application/zip since .wgt files are ZIP archives
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', 'attachment; filename="signox-player.wgt"');
+    } else if (filePath.endsWith('.xml')) {
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    } else if (filePath.endsWith('.apk')) {
+      res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+      res.setHeader('Content-Disposition', 'attachment; filename="signox-player.apk"');
+    }
+    
+    // Essential headers for Samsung SSSP
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Range, Content-Length');
   },
 }));
 

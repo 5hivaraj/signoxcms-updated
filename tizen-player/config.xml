@@ -15,13 +15,19 @@ required_version="6.0"/>
 <tizen:privilege name="http://tizen.org/privilege/internet"/>
 <tizen:privilege name="http://tizen.org/privilege/filesystem.read"/>
 <tizen:privilege name="http://tizen.org/privilege/filesystem.write"/>
+<tizen:privilege name="http://tizen.org/privilege/power"/>
+<tizen:privilege name="http://tizen.org/privilege/system"/>
+<tizen:privilege name="http://tizen.org/privilege/application.launch"/>
 
-<tizen:setting screen-orientation="portrait"
-background-support="disable"
+<tizen:setting screen-orientation="landscape"
+background-support="enable"
 context-menu="disable"
 hwkey-event="enable"
 fullscreen="true"
-launch-mode="single"/>
+launch-mode="single"
+launch-on-boot="true"
+auto-restart="true"
+install-location="auto"/>
 
 <tizen:content-security-policy>default-src * data: blob: filesystem: ws: wss:; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data: blob:; media-src * data: blob:;</tizen:content-security-policy>
 

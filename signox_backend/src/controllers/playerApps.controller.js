@@ -66,6 +66,54 @@ exports.getDownloadUrl = async (req, res) => {
 };
 
 /**
+ * Get SSSP widget configuration for Samsung displays
+ * This endpoint provides the widget.xml file needed for SSSP auto-launch
+ */
+exports.getSSSPWidget = async (req, res) => {
+  try {
+    // Return widget.xml content for SSSP
+    const widgetXml = `<?xml version="1.0" encoding="UTF-8"?>
+<widget>
+    <widgetname>signox-player.wgt</widgetname>
+    <size>755433</size>
+    <ver>1.0.0</ver>
+    <auto_launch>true</auto_launch>
+    <description>SignoX Digital Signage Player</description>
+</widget>`;
+
+    res.setHeader('Content-Type', 'application/xml');
+    res.send(widgetXml);
+  } catch (error) {
+    console.error('Error serving SSSP widget:', error);
+    return res.status(500).json({
+      error: 'Failed to serve SSSP widget configuration'
+    });
+  }
+};
+
+/**
+ * Track download analytics
+ */
+exports.trackDownload = async (req, res) => {
+  try {
+    const { type, deviceInfo } = req.body;
+    
+    // Log download for analytics
+    console.log(`Player app download: ${type}`, {
+      timestamp: new Date().toISOString(),
+      userAgent: req.headers['user-agent'],
+      ip: req.ip,
+      deviceInfo
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error tracking download:', error);
+    res.status(500).json({ error: 'Failed to track download' });
+  }
+};
+
+/**
  * Track download analytics (optional)
  */
 exports.trackDownload = async (req, res) => {
