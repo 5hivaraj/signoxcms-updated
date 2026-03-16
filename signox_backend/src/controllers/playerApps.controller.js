@@ -75,7 +75,7 @@ exports.getSSSPWidget = async (req, res) => {
     const widgetXml = `<?xml version="1.0" encoding="UTF-8"?>
 <widget>
     <widgetname>signox-player.wgt</widgetname>
-    <size>755433</size>
+    <size>131263</size>
     <ver>1.0.0</ver>
     <auto_launch>true</auto_launch>
     <description>SignoX Digital Signage Player</description>
