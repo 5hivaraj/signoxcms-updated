@@ -30,6 +30,8 @@ type Media = {
   mimeType?: string | null;
   endDate?: string | null;
   createdAt: string;
+  thumbnailUrl?: string | null;
+  previewUrl?: string | null;
 };
 
 type StorageInfo = {
@@ -63,11 +65,16 @@ export default function MediaLibraryPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [endDate, setEndDate] = useState<string>('');
   const [orientation, setOrientation] = useState<'LANDSCAPE' | 'PORTRAIT'>('LANDSCAPE');
   const [displayMode, setDisplayMode] = useState<'fit' | 'fill' | 'stretch'>('fit');
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [currentUploadIndex, setCurrentUploadIndex] = useState(0);
+  const [uploadResults, setUploadResults] = useState<{success: number, failed: number}>({success: 0, failed: 0});
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedMediaIds, setSelectedMediaIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Role access:
@@ -183,120 +190,183 @@ export default function MediaLibraryPage() {
   }
 
   const filtered = useMemo(() => {
+    // Clear selection when tab changes
+    setSelectedMediaIds([]);
+    
     if (tab === 'images') return media.filter((m) => m.type === 'IMAGE');
     if (tab === 'videos') return media.filter((m) => m.type === 'VIDEO');
     return media;
   }, [media, tab]);
 
-  async function onPickFile(file: File) {
+  async function onPickFiles(files: FileList) {
     if (!canWrite) return;
 
-    // Check if storage info is available and if file would exceed limit
+    const validFiles: File[] = [];
+    const errors: string[] = [];
+    let totalSize = 0;
+
+    // Validate each file
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
+      // Check file type
+      const allowed = ['image/jpeg', 'image/png', 'video/mp4'];
+      if (!allowed.includes(file.type)) {
+        errors.push(`${file.name}: Only JPEG/PNG images and MP4 videos are allowed`);
+        continue;
+      }
+
+      // Check individual file size (600MB limit)
+      const maxFileSizeBytes = 600 * 1024 * 1024;
+      if (file.size > maxFileSizeBytes) {
+        errors.push(`${file.name}: File too large. Max size is 600MB`);
+        continue;
+      }
+
+      totalSize += file.size;
+      validFiles.push(file);
+    }
+
+    // Check total storage limit
     if (storageInfo) {
-      const fileSizeMB = file.size / (1024 * 1024);
-      if (fileSizeMB > storageInfo.availableMB) {
-        alert(`File size (${fileSizeMB.toFixed(1)}MB) exceeds available storage (${storageInfo.availableMB.toFixed(1)}MB). Please delete some files first or contact your administrator.`);
-        return;
+      const totalSizeMB = totalSize / (1024 * 1024);
+      if (totalSizeMB > storageInfo.availableMB) {
+        errors.push(`Total file size (${totalSizeMB.toFixed(1)}MB) exceeds available storage (${storageInfo.availableMB.toFixed(1)}MB)`);
       }
     }
 
-    // 600MB individual file limit (server also enforces; supports large videos for HLS)
-    const maxFileSizeBytes = 600 * 1024 * 1024;
-    if (file.size > maxFileSizeBytes) {
-      alert(`File too large. Max size is 600MB.`);
-      return;
+    // Show errors if any
+    if (errors.length > 0) {
+      alert(`Upload errors:\n\n${errors.join('\n')}`);
+      if (validFiles.length === 0) return;
     }
 
-    const allowed = ['image/jpeg', 'image/png', 'video/mp4'];
-    if (!allowed.includes(file.type)) {
-      alert('Only JPEG/PNG images and MP4 videos are allowed.');
-      return;
-    }
-
-    setSelectedFile(file);
+    // Set valid files and show dialog
+    setSelectedFiles(validFiles);
     setEndDate('');
     setOrientation('LANDSCAPE');
     setDisplayMode('fit');
+    setUploadResults({success: 0, failed: 0});
+    setCurrentUploadIndex(0);
     setShowUploadDialog(true);
   }
 
+  // Drag and drop handlers
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (canWrite && !uploading) {
+      setIsDragOver(true);
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    
+    if (!canWrite || uploading) return;
+    
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      onPickFiles(files);
+    }
+  }
+
   async function onUpload() {
-    if (!selectedFile || !canWrite) return;
+    if (selectedFiles.length === 0 || !canWrite) return;
 
-    console.log('📤 [UPLOAD DEBUG] Starting upload process...');
-    console.log('📤 [UPLOAD DEBUG] Selected file:', {
-      name: selectedFile.name,
-      size: selectedFile.size,
-      type: selectedFile.type
-    });
-    console.log('📤 [UPLOAD DEBUG] Upload settings:', {
-      endDate,
-      orientation,
-      displayMode
-    });
+    console.log('📤 [UPLOAD DEBUG] Starting batch upload process...');
+    console.log('📤 [UPLOAD DEBUG] Selected files:', selectedFiles.map(f => ({
+      name: f.name,
+      size: f.size,
+      type: f.type
+    })));
 
-    const form = new FormData();
-    form.append('file', selectedFile);
-    form.append('name', selectedFile.name);
-    
-    if (endDate) {
-      form.append('endDate', endDate);
-    }
-    
-    // Add orientation and display mode metadata (can be stored as tags or in description)
-    form.append('orientation', orientation);
-    form.append('displayMode', displayMode);
+    setUploading(true);
+    setUploadProgress(0);
+    setCurrentUploadIndex(0);
+    setUploadResults({success: 0, failed: 0});
 
-    console.log('📤 [UPLOAD DEBUG] FormData entries:');
-    for (let [key, value] of form.entries()) {
-      console.log(`📤 [UPLOAD DEBUG] - ${key}:`, value instanceof File ? `File(${value.name})` : value);
-    }
+    let successCount = 0;
+    let failedCount = 0;
 
-    try {
-      setUploading(true);
-      setUploadProgress(0);
-
-      console.log('📤 [UPLOAD DEBUG] Sending upload request...');
-      const response = await api.post('/media', form, {
-        // Increase timeout for media uploads (especially videos with HLS conversion)
-        timeout: 300000, // 5 minutes for large video files
-        // Don't set Content-Type manually - let axios/browser set it with boundary for FormData
-        onUploadProgress: (evt) => {
-          const total = evt.total ?? 0;
-          if (!total) return;
-          const progress = Math.round((evt.loaded / total) * 100);
-          console.log(`📤 [UPLOAD DEBUG] Upload progress: ${progress}% (${evt.loaded}/${total})`);
-          setUploadProgress(progress);
-        },
-      });
-
-      console.log('✅ [UPLOAD DEBUG] Upload successful!');
-      console.log('✅ [UPLOAD DEBUG] Response:', response.data);
-
-      await fetchMedia();
-      setShowUploadDialog(false);
-      setSelectedFile(null);
-      setEndDate('');
-      setOrientation('LANDSCAPE');
-      setDisplayMode('fit');
-    } catch (e: any) {
-      console.error('❌ [UPLOAD DEBUG] Upload failed:', e);
-      console.error('❌ [UPLOAD DEBUG] Error response:', e.response?.data);
-      console.error('❌ [UPLOAD DEBUG] Error status:', e.response?.status);
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      setCurrentUploadIndex(i);
       
-      const errorMessage = e?.response?.data?.message || 'Upload failed';
-      const errorDetails = e?.response?.data?.details;
+      console.log(`📤 [UPLOAD DEBUG] Uploading file ${i + 1}/${selectedFiles.length}: ${file.name}`);
+
+      const form = new FormData();
+      form.append('file', file);
+      form.append('name', file.name);
       
-      if (errorDetails) {
-        alert(`${errorMessage}\n\n${errorDetails}`);
-      } else {
-        alert(errorMessage);
+      if (endDate) {
+        form.append('endDate', endDate);
       }
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      
+      // Add orientation and display mode metadata
+      form.append('orientation', orientation);
+      form.append('displayMode', displayMode);
+
+      try {
+        const response = await api.post('/media', form, {
+          timeout: 300000, // 5 minutes for large video files
+          onUploadProgress: (evt) => {
+            const total = evt.total ?? 0;
+            if (!total) return;
+            const fileProgress = Math.round((evt.loaded / total) * 100);
+            const overallProgress = Math.round(((i + (evt.loaded / total)) / selectedFiles.length) * 100);
+            setUploadProgress(overallProgress);
+            console.log(`📤 [UPLOAD DEBUG] File ${i + 1} progress: ${fileProgress}%, Overall: ${overallProgress}%`);
+          },
+        });
+
+        console.log(`✅ [UPLOAD DEBUG] File ${i + 1} uploaded successfully!`);
+        successCount++;
+        setUploadResults({success: successCount, failed: failedCount});
+
+      } catch (e: any) {
+        console.error(`❌ [UPLOAD DEBUG] File ${i + 1} upload failed:`, e);
+        failedCount++;
+        setUploadResults({success: successCount, failed: failedCount});
+        
+        // Continue with next file instead of stopping
+        console.log(`⏭️ [UPLOAD DEBUG] Continuing with next file...`);
+      }
     }
+
+    console.log(`🎉 [UPLOAD DEBUG] Batch upload completed! Success: ${successCount}, Failed: ${failedCount}`);
+
+    // Refresh media list and close dialog
+    await fetchMedia();
+    
+    // Show completion message
+    if (failedCount === 0) {
+      alert(`✅ All ${successCount} files uploaded successfully!`);
+    } else if (successCount === 0) {
+      alert(`❌ All ${selectedFiles.length} files failed to upload.`);
+    } else {
+      alert(`⚠️ Upload completed: ${successCount} successful, ${failedCount} failed.`);
+    }
+
+    // Reset state
+    setShowUploadDialog(false);
+    setSelectedFiles([]);
+    setEndDate('');
+    setOrientation('LANDSCAPE');
+    setDisplayMode('fit');
+    setUploading(false);
+    setUploadProgress(0);
+    setCurrentUploadIndex(0);
+    setUploadResults({success: 0, failed: 0});
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
   async function onDelete(id: string) {
@@ -305,7 +375,12 @@ export default function MediaLibraryPage() {
       console.log('🔄 [DELETE DEBUG] Delete already in progress for:', id);
       return;
     }
-    if (!confirm('Are you sure you want to delete this media file? This action cannot be undone.')) return;
+    
+    let confirmMessage = 'Are you sure you want to delete this media file?';
+    confirmMessage += '\n\nNote: Media files that are currently used in playlists, layouts, or widgets cannot be deleted.';
+    confirmMessage += '\n\nThis action cannot be undone.';
+    
+    if (!confirm(confirmMessage)) return;
     
     console.log('🗑️ [DELETE DEBUG] Starting delete process for media ID:', id);
     
@@ -333,8 +408,12 @@ export default function MediaLibraryPage() {
       await fetchMedia();
     } catch (e: any) {
       console.error('❌ [DELETE DEBUG] Delete failed:', e);
-      console.error('❌ [DELETE DEBUG] Error response:', e.response?.data);
-      console.error('❌ [DELETE DEBUG] Error status:', e.response?.status);
+      console.error('❌ [DELETE DEBUG] Error details:', {
+        status: e.response?.status,
+        statusText: e.response?.statusText,
+        data: e.response?.data,
+        message: e.message
+      });
       
       // Don't show error if it's just "not found" (already deleted)
       if (e.response?.status === 404) {
@@ -345,7 +424,27 @@ export default function MediaLibraryPage() {
         console.log('🔄 [DELETE DEBUG] Restoring original media list due to error');
         setMedia(originalMedia);
         
-        const errorMessage = e?.response?.data?.message || 'Delete failed';
+        // Show more detailed error message
+        let errorMessage = 'Delete failed';
+        if (e.response?.status === 400) {
+          const backendMessage = e.response?.data?.message || e.response?.data?.error || '';
+          if (backendMessage.includes('playlists')) {
+            errorMessage = 'Cannot delete: This media is currently used in one or more playlists. Remove it from playlists first.';
+          } else if (backendMessage.includes('layouts')) {
+            errorMessage = 'Cannot delete: This media is currently used in one or more layouts. Remove it from layouts first.';
+          } else if (backendMessage.includes('widgets')) {
+            errorMessage = 'Cannot delete: This media is currently used in one or more widgets. Remove it from widgets first.';
+          } else {
+            errorMessage = backendMessage || 'Bad request - the media file may be in use or corrupted';
+          }
+        } else if (e.response?.status === 403) {
+          errorMessage = 'Permission denied - you may not have access to delete this file';
+        } else if (e.response?.status === 500) {
+          errorMessage = 'Server error - please try again later';
+        } else {
+          errorMessage = e.response?.data?.message || e.response?.data?.error || e.message || 'Delete failed';
+        }
+        
         alert(errorMessage);
       }
     } finally {
@@ -355,6 +454,113 @@ export default function MediaLibraryPage() {
         newSet.delete(id);
         return newSet;
       });
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedMediaIds.length === 0 || !canWrite) return;
+    
+    const selectedMedia = media.filter(m => selectedMediaIds.includes(m.id));
+    let confirmMessage = `Are you sure you want to delete ${selectedMediaIds.length} media file${selectedMediaIds.length !== 1 ? 's' : ''}?`;
+    confirmMessage += '\n\nNote: Media files that are currently used in playlists, layouts, or widgets cannot be deleted and will be skipped.';
+    confirmMessage += '\n\nThis action cannot be undone.';
+
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setBulkDeleting(true);
+      console.log('🗑️ [BULK DELETE DEBUG] Starting bulk delete for:', selectedMediaIds);
+      
+      let successCount = 0;
+      let failedCount = 0;
+      const failedItems: string[] = [];
+      
+      // Delete media files one by one
+      for (const mediaId of selectedMediaIds) {
+        try {
+          console.log('🗑️ [BULK DELETE DEBUG] Attempting to delete:', mediaId);
+          const response = await api.delete(`/media/${mediaId}`);
+          console.log('✅ [BULK DELETE DEBUG] Successfully deleted:', mediaId, response.status);
+          successCount++;
+        } catch (e: any) {
+          console.error('❌ [BULK DELETE DEBUG] Failed to delete:', mediaId);
+          console.error('❌ [BULK DELETE DEBUG] Error details:', {
+            status: e.response?.status,
+            statusText: e.response?.statusText,
+            data: e.response?.data,
+            message: e.message
+          });
+          
+          failedCount++;
+          const mediaItem = selectedMedia.find(m => m.id === mediaId);
+          const mediaName = mediaItem?.originalName || mediaItem?.name || mediaId;
+          
+          // Provide specific error messages based on status and response
+          let errorReason = 'Unknown error';
+          if (e.response?.status === 400) {
+            errorReason = e.response?.data?.message || 'Bad request';
+            // Common 400 errors from backend:
+            if (errorReason.includes('playlists')) {
+              errorReason = 'Used in playlists';
+            } else if (errorReason.includes('layouts')) {
+              errorReason = 'Used in layouts';
+            } else if (errorReason.includes('widgets')) {
+              errorReason = 'Used in widgets';
+            }
+          } else if (e.response?.status === 403) {
+            errorReason = 'Permission denied';
+          } else if (e.response?.status === 404) {
+            errorReason = 'File not found';
+          } else if (e.response?.status === 500) {
+            errorReason = 'Server error';
+          } else {
+            errorReason = e.response?.data?.message || e.response?.data?.error || e.message || 'Unknown error';
+          }
+          
+          failedItems.push(`${mediaName}: ${errorReason}`);
+        }
+      }
+      
+      // Clear selection and refresh
+      setSelectedMediaIds([]);
+      await fetchMedia();
+      
+      // Show results
+      if (failedCount === 0) {
+        console.log('🎉 [BULK DELETE DEBUG] All items deleted successfully');
+        alert(`✅ Successfully deleted ${successCount} media file${successCount !== 1 ? 's' : ''}!`);
+      } else if (successCount === 0) {
+        console.log('❌ [BULK DELETE DEBUG] All deletions failed');
+        alert(`❌ Failed to delete all ${failedCount} media files:\n\n${failedItems.join('\n')}\n\nTip: Remove media from playlists, layouts, and widgets before deleting.`);
+      } else {
+        console.log('⚠️ [BULK DELETE DEBUG] Partial success:', { successCount, failedCount });
+        alert(`⚠️ Bulk delete completed with mixed results:\n\n✅ Successfully deleted: ${successCount}\n❌ Failed to delete: ${failedCount}\n\nFailed items:\n${failedItems.join('\n')}\n\nTip: Remove media from playlists, layouts, and widgets before deleting.`);
+      }
+      
+    } catch (error: any) {
+      console.error('❌ [BULK DELETE DEBUG] Bulk delete operation failed:', error);
+      const errorMessage = error?.response?.data?.error || error?.response?.data?.message || 'Failed to delete media files. Please try again.';
+      alert(errorMessage);
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
+  function toggleMediaSelection(mediaId: string) {
+    setSelectedMediaIds(prev => 
+      prev.includes(mediaId) 
+        ? prev.filter(id => id !== mediaId)
+        : [...prev, mediaId]
+    );
+  }
+
+  function selectAllMedia() {
+    if (selectedMediaIds.length === filtered.length) {
+      setSelectedMediaIds([]);
+    } else {
+      setSelectedMediaIds(filtered.map(m => m.id));
     }
   }
 
@@ -370,7 +576,26 @@ export default function MediaLibraryPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-8 pb-8">
+      <div 
+        className="space-y-8 pb-8"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {/* Drag Overlay */}
+        {isDragOver && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+            <div className="bg-white rounded-2xl p-8 shadow-2xl border-4 border-dashed border-yellow-400 max-w-md mx-4">
+              <div className="text-center">
+                <Upload className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Drop files to upload</h3>
+                <p className="text-gray-600">
+                  Drop your JPEG/PNG images or MP4 videos here
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {/* Header Section */}
         <div className="relative">
           <div className="absolute inset-0 bg-gradient-to-r from-yellow-400/10 to-orange-500/10 rounded-3xl blur-3xl"></div>
@@ -381,7 +606,7 @@ export default function MediaLibraryPage() {
                   <Film className="h-10 w-10 text-yellow-400" />
                   <h1 className="text-4xl font-black text-white">Media Library</h1>
                 </div>
-                <p className="text-gray-300 text-lg">Centralized media uploads (images/videos)</p>
+                <p className="text-gray-300 text-lg">Upload multiple images and videos at once</p>
               </div>
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full lg:w-auto">
@@ -398,14 +623,26 @@ export default function MediaLibraryPage() {
                 )}
 
                 <div className="flex items-center gap-3">
+                  {selectedMediaIds.length > 0 && canWrite && (
+                    <Button
+                      onClick={handleBulkDelete}
+                      disabled={bulkDeleting}
+                      variant="destructive"
+                      className="h-12 gap-2 font-bold shadow-lg"
+                    >
+                      {bulkDeleting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Trash2 className="h-5 w-5" />}
+                      Delete Selected ({selectedMediaIds.length})
+                    </Button>
+                  )}
                   <input
                     ref={fileInputRef}
                     type="file"
                     className="hidden"
                     accept="image/jpeg,image/png,video/mp4"
+                    multiple
                     onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) onPickFile(f);
+                      const files = e.target.files;
+                      if (files && files.length > 0) onPickFiles(files);
                     }}
                   />
                   <Button
@@ -424,7 +661,7 @@ export default function MediaLibraryPage() {
                     className="h-12 gap-2 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black font-bold shadow-lg hover:shadow-yellow-500/50 transition-all duration-300 hover:scale-105"
                   >
                     {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
-                    Upload Media
+                    Upload Media Files
                   </Button>
                 </div>
               </div>
@@ -449,11 +686,78 @@ export default function MediaLibraryPage() {
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
           <TabsList className="bg-gray-100 p-1">
-            <TabsTrigger value="all" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-400 data-[state=active]:to-yellow-500 data-[state=active]:text-black font-semibold">All Media</TabsTrigger>
-            <TabsTrigger value="images" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-400 data-[state=active]:to-yellow-500 data-[state=active]:text-black font-semibold">Images</TabsTrigger>
-            <TabsTrigger value="videos" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-400 data-[state=active]:to-yellow-500 data-[state=active]:text-black font-semibold">Videos</TabsTrigger>
+            <TabsTrigger value="all" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-400 data-[state=active]:to-yellow-500 data-[state=active]:text-black font-semibold">
+              All Media
+              {selectedMediaIds.length > 0 && tab === 'all' && (
+                <span className="ml-2 bg-yellow-600 text-white text-xs px-2 py-0.5 rounded-full">
+                  {selectedMediaIds.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="images" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-400 data-[state=active]:to-yellow-500 data-[state=active]:text-black font-semibold">
+              Images
+              {selectedMediaIds.length > 0 && tab === 'images' && (
+                <span className="ml-2 bg-yellow-600 text-white text-xs px-2 py-0.5 rounded-full">
+                  {selectedMediaIds.length}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="videos" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-400 data-[state=active]:to-yellow-500 data-[state=active]:text-black font-semibold">
+              Videos
+              {selectedMediaIds.length > 0 && tab === 'videos' && (
+                <span className="ml-2 bg-yellow-600 text-white text-xs px-2 py-0.5 rounded-full">
+                  {selectedMediaIds.length}
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {/* Floating Action Bar - appears when media items are selected */}
+        {selectedMediaIds.length > 0 && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 shadow-lg" data-aos="fade-down">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                    <Trash2 className="h-4 w-4 text-red-600" />
+                  </div>
+                  <span className="font-semibold text-red-900">
+                    {selectedMediaIds.length} media file{selectedMediaIds.length !== 1 ? 's' : ''} selected
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedMediaIds([])}
+                  className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </Button>
+                {canWrite && (
+                  <Button
+                    onClick={handleBulkDelete}
+                    disabled={bulkDeleting}
+                    className="bg-red-600 hover:bg-red-700 text-white font-semibold gap-2"
+                  >
+                    {bulkDeleting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="h-4 w-4" />
+                        Delete Selected
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -461,37 +765,118 @@ export default function MediaLibraryPage() {
             <p className="ml-3 text-gray-600">Loading media…</p>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
-            <p className="text-gray-600">No media found.</p>
-            <p className="mt-2 text-sm text-gray-500">
-              Upload JPEG/PNG images or MP4 videos (max 600MB per file).
-            </p>
-            {storageInfo && (
-              <p className="mt-1 text-sm text-gray-500">
-                Available storage: {storageInfo.availableMB.toFixed(1)}MB of {storageInfo.limitMB}MB
-              </p>
-            )}
+          <div className="rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 p-12 text-center hover:border-yellow-400 hover:bg-yellow-50 transition-all duration-300">
+            <div className="space-y-4">
+              <Upload className="h-12 w-12 text-gray-400 mx-auto" />
+              <div>
+                <p className="text-gray-600 font-medium">No media found.</p>
+                <p className="mt-2 text-sm text-gray-500">
+                  Upload JPEG/PNG images or MP4 videos (max 600MB per file).
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  You can drag and drop files here or click the upload button.
+                </p>
+                {storageInfo && (
+                  <p className="mt-1 text-sm text-gray-500">
+                    Available storage: {storageInfo.availableMB.toFixed(1)}MB of {storageInfo.limitMB}MB
+                  </p>
+                )}
+              </div>
+              {canWrite && (
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || (storageInfo?.availableMB ?? 0) <= 0}
+                  className="bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black font-bold"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Choose Files
+                </Button>
+              )}
+            </div>
           </div>
         ) : (
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <>
+            {/* Select All Section */}
+            {canWrite && filtered.length > 0 && (
+              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedMediaIds.length === filtered.length && filtered.length > 0}
+                    onChange={selectAllMedia}
+                    className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500 h-4 w-4"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    Select All ({filtered.length} items)
+                  </span>
+                </div>
+                {selectedMediaIds.length > 0 && (
+                  <span className="text-sm text-gray-600">
+                    {selectedMediaIds.length} selected
+                  </span>
+                )}
+              </div>
+            )}
+            
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((m) => {
               const title = m.originalName || m.name;
               const isImage = m.type === 'IMAGE';
+              const isSelected = selectedMediaIds.includes(m.id);
               return (
-                <Card key={m.id} className="overflow-hidden hover:shadow-2xl transition-all duration-300 hover:scale-105 border-gray-200 group">
+                <Card key={m.id} className={cn(
+                  "overflow-hidden hover:shadow-2xl transition-all duration-300 hover:scale-105 border-gray-200 group relative cursor-pointer",
+                  isSelected && "ring-2 ring-yellow-400 border-yellow-400"
+                )}
+                onClick={() => {
+                  if (canWrite && selectedMediaIds.length > 0) {
+                    toggleMediaSelection(m.id);
+                  }
+                }}
+                >
                   <CardContent className="p-0">
+                    {/* Selection Checkbox */}
+                    {canWrite && (
+                      <div className="absolute top-2 left-2 z-20">
+                        <div className={cn(
+                          "rounded-full p-1 transition-all duration-200",
+                          isSelected 
+                            ? "bg-yellow-400 shadow-lg" 
+                            : "bg-white/90 backdrop-blur-sm shadow-lg hover:bg-yellow-100"
+                        )}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              toggleMediaSelection(m.id);
+                            }}
+                            className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500 h-4 w-4"
+                          />
+                        </div>
+                      </div>
+                    )}
+
                     <div className="relative aspect-video bg-gray-900 group">
                       {isImage ? (
+                        // Use thumbnail if available, fallback to original image
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={`${publicBaseUrl}${m.url}`}
+                          src={m.thumbnailUrl ? `${publicBaseUrl}${m.thumbnailUrl}` : `${publicBaseUrl}${m.url}`}
                           alt={title}
                           className="h-full w-full object-cover"
                           onError={(e) => {
-                            console.warn('🖼️ [IMAGE DEBUG] Failed to load image:', `${publicBaseUrl}${m.url}`);
+                            console.warn('🖼️ [IMAGE DEBUG] Failed to load image:', m.thumbnailUrl ? `${publicBaseUrl}${m.thumbnailUrl}` : `${publicBaseUrl}${m.url}`);
                             const target = e.target as HTMLImageElement;
+                            
+                            // If thumbnail failed, try original image
+                            if (m.thumbnailUrl && target.src.includes(m.thumbnailUrl)) {
+                              target.src = `${publicBaseUrl}${m.url}`;
+                              return;
+                            }
+                            
+                            // If original also failed, show placeholder
                             target.style.display = 'none';
-                            // Show a placeholder instead
                             const placeholder = target.parentElement?.querySelector('.image-placeholder');
                             if (placeholder) {
                               (placeholder as HTMLElement).style.display = 'flex';
@@ -499,9 +884,40 @@ export default function MediaLibraryPage() {
                           }}
                         />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-gray-300">
-                          <Video className="h-12 w-12 opacity-70" />
-                        </div>
+                        // For videos, show thumbnail if available, otherwise show video icon
+                        m.thumbnailUrl ? (
+                          <div className="relative h-full w-full">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`${publicBaseUrl}${m.thumbnailUrl}`}
+                              alt={title}
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                console.warn('🎬 [VIDEO DEBUG] Failed to load video thumbnail:', `${publicBaseUrl}${m.thumbnailUrl}`);
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const placeholder = target.parentElement?.querySelector('.video-placeholder');
+                                if (placeholder) {
+                                  (placeholder as HTMLElement).style.display = 'flex';
+                                }
+                              }}
+                            />
+                            {/* Video play overlay */}
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                              <div className="rounded-full bg-black/60 p-3">
+                                <Video className="h-8 w-8 text-white" />
+                              </div>
+                            </div>
+                            {/* Video placeholder for failed thumbnail loads */}
+                            <div className="video-placeholder absolute inset-0 hidden items-center justify-center bg-gray-800 text-gray-300">
+                              <Video className="h-12 w-12 opacity-70" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-gray-300">
+                            <Video className="h-12 w-12 opacity-70" />
+                          </div>
+                        )
                       )}
 
                       {/* Image placeholder for failed loads */}
@@ -514,7 +930,7 @@ export default function MediaLibraryPage() {
                         </div>
                       )}
 
-                      {canWrite && (
+                      {canWrite && selectedMediaIds.length === 0 && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -559,6 +975,7 @@ export default function MediaLibraryPage() {
               );
             })}
           </div>
+          </>
         )}
       </div>
 
@@ -567,53 +984,83 @@ export default function MediaLibraryPage() {
         if (!uploading) {
           setShowUploadDialog(open);
           if (!open) {
-            setSelectedFile(null);
+            setSelectedFiles([]);
             setEndDate('');
             setOrientation('LANDSCAPE');
             setDisplayMode('fit');
+            setUploadResults({success: 0, failed: 0});
+            setCurrentUploadIndex(0);
             if (fileInputRef.current) fileInputRef.current.value = '';
           }
         }
       }}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto bg-white">
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto bg-white">
           <DialogHeader className="border-b pb-4">
-            <DialogTitle className="text-2xl font-bold">Upload Media</DialogTitle>
-            <p className="text-sm text-gray-500 mt-1">Configure your media settings before uploading</p>
+            <DialogTitle className="text-2xl font-bold">
+              Upload Media ({selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''})
+            </DialogTitle>
+            <p className="text-sm text-gray-500 mt-1">Configure settings for all selected files</p>
           </DialogHeader>
           
           <div className="space-y-6 py-4">
-            {/* File Preview Section */}
-            {selectedFile && (
+            {/* Files Preview Section */}
+            {selectedFiles.length > 0 && (
               <div className="rounded-lg border-2 border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100 p-5">
-                <div className="flex items-start gap-4">
-                  <div className="flex-shrink-0">
-                    {selectedFile.type.startsWith('image/') ? (
-                      <div className="w-16 h-16 rounded-lg bg-blue-100 flex items-center justify-center">
-                        <ImageIcon className="h-8 w-8 text-blue-600" />
-                      </div>
-                    ) : (
-                      <div className="w-16 h-16 rounded-lg bg-purple-100 flex items-center justify-center">
-                        <Video className="h-8 w-8 text-purple-600" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                      <div className="text-sm font-semibold text-gray-900 break-words">
-                        {selectedFile.name}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
-                      <span className="flex items-center gap-1">
-                        <span className="font-medium">Type:</span> {selectedFile.type}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="font-medium">Size:</span> {formatBytes(selectedFile.size)}
-                      </span>
-                    </div>
-                  </div>
+                <div className="flex items-center gap-2 mb-4">
+                  <FileText className="h-5 w-5 text-gray-600" />
+                  <span className="font-semibold text-gray-900">
+                    Selected Files ({selectedFiles.length})
+                  </span>
                 </div>
+                
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {selectedFiles.map((file, index) => (
+                    <div key={index} className="flex items-start gap-4 p-3 bg-white rounded-lg border">
+                      <div className="flex-shrink-0">
+                        {file.type.startsWith('image/') ? (
+                          <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                            <ImageIcon className="h-6 w-6 text-blue-600" />
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
+                            <Video className="h-6 w-6 text-purple-600" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-gray-900 break-words">
+                          {file.name}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600 mt-1">
+                          <span className="flex items-center gap-1">
+                            <span className="font-medium">Type:</span> {file.type}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="font-medium">Size:</span> {formatBytes(file.size)}
+                          </span>
+                        </div>
+                      </div>
+                      {uploading && currentUploadIndex === index && (
+                        <div className="flex-shrink-0">
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                        </div>
+                      )}
+                      {uploading && currentUploadIndex > index && (
+                        <div className="flex-shrink-0">
+                          <Check className="h-4 w-4 text-green-600" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                {selectedFiles.length > 0 && (
+                  <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <div className="text-sm text-blue-800">
+                      <span className="font-medium">Total size:</span> {formatBytes(selectedFiles.reduce((sum, file) => sum + file.size, 0))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -755,7 +1202,7 @@ export default function MediaLibraryPage() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-700 font-semibold flex items-center gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Uploading…
+                    Uploading file {currentUploadIndex + 1} of {selectedFiles.length}…
                   </span>
                   <span className="text-gray-700 font-bold">{uploadProgress}%</span>
                 </div>
@@ -765,6 +1212,29 @@ export default function MediaLibraryPage() {
                     style={{ width: `${uploadProgress}%` }}
                   />
                 </div>
+                
+                {/* Batch Progress Summary */}
+                {(uploadResults.success > 0 || uploadResults.failed > 0) && (
+                  <div className="flex items-center justify-between text-xs bg-white rounded-lg p-3 border">
+                    <div className="flex items-center gap-4">
+                      {uploadResults.success > 0 && (
+                        <span className="flex items-center gap-1 text-green-700">
+                          <Check className="h-3 w-3" />
+                          {uploadResults.success} successful
+                        </span>
+                      )}
+                      {uploadResults.failed > 0 && (
+                        <span className="flex items-center gap-1 text-red-700">
+                          <span className="w-3 h-3 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">✕</span>
+                          {uploadResults.failed} failed
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-gray-600 font-medium">
+                      {uploadResults.success + uploadResults.failed} / {selectedFiles.length} processed
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -775,10 +1245,12 @@ export default function MediaLibraryPage() {
               onClick={() => {
                 if (!uploading) {
                   setShowUploadDialog(false);
-                  setSelectedFile(null);
+                  setSelectedFiles([]);
                   setEndDate('');
                   setOrientation('LANDSCAPE');
                   setDisplayMode('fit');
+                  setUploadResults({success: 0, failed: 0});
+                  setCurrentUploadIndex(0);
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }
               }}
@@ -789,18 +1261,18 @@ export default function MediaLibraryPage() {
             </Button>
             <Button 
               onClick={onUpload} 
-              disabled={!selectedFile || uploading} 
-              className="signomart-primary hover:signomart-primary min-w-[120px] font-semibold"
+              disabled={selectedFiles.length === 0 || uploading} 
+              className="bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black font-bold min-w-[120px]"
             >
               {uploading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Uploading...
+                  Uploading {currentUploadIndex + 1}/{selectedFiles.length}...
                 </>
               ) : (
                 <>
                   <Upload className="mr-2 h-4 w-4" />
-                  Upload Media
+                  Upload {selectedFiles.length} File{selectedFiles.length !== 1 ? 's' : ''}
                 </>
               )}
             </Button>

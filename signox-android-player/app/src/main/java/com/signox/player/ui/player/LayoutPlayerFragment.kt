@@ -11,6 +11,7 @@ import com.signox.player.data.dto.LayoutDto
 import com.signox.player.data.dto.LayoutSectionDto
 import com.signox.player.databinding.FragmentLayoutPlayerBinding
 import com.signox.player.ui.player.section.SectionPlayerView
+import com.signox.player.ui.views.ScrollingTextView
 
 class LayoutPlayerFragment : Fragment() {
     
@@ -19,6 +20,7 @@ class LayoutPlayerFragment : Fragment() {
     
     private var layout: LayoutDto? = null
     private val sectionPlayers = mutableListOf<SectionPlayerView>()
+    private val scrollingTexts = mutableListOf<ScrollingTextView>()
     
     companion object {
         private const val TAG = "LayoutPlayer"
@@ -71,6 +73,11 @@ class LayoutPlayerFragment : Fragment() {
         
         // Start all section players
         sectionPlayers.forEach { it.startPlayback() }
+        
+        // Create layout-wide scrolling texts
+        layout.scrollTexts?.forEach { scrollText ->
+            createScrollingText(scrollText)
+        }
     }
     
     private fun createSectionPlayer(section: LayoutSectionDto) {
@@ -101,6 +108,53 @@ class LayoutPlayerFragment : Fragment() {
         }
         
         Log.d(TAG, "Created section player for ${section.id} with ${section.items.size} items")
+        
+        // Create section-specific scrolling texts
+        section.scrollTexts?.forEach { scrollText ->
+            createScrollingText(scrollText, sectionPlayer)
+        }
+    }
+    
+    private fun createScrollingText(scrollText: ScrollTextData, parentView: View? = null) {
+        val scrollingTextView = ScrollingTextView(requireContext()).apply {
+            setScrollText(scrollText)
+        }
+        
+        val container = parentView as? ViewGroup ?: binding.sectionsContainer
+        val containerWidth = container.width
+        val containerHeight = container.height
+        
+        if (containerWidth == 0 || containerHeight == 0) {
+            // Layout not ready yet, try again
+            container.post {
+                createScrollingText(scrollText, parentView)
+            }
+            return
+        }
+        
+        // Calculate position and size
+        val x = (scrollText.x / 100f * containerWidth).toInt()
+        val y = (scrollText.y / 100f * containerHeight).toInt()
+        val width = (scrollText.width / 100f * containerWidth).toInt()
+        val height = (scrollText.height / 100f * containerHeight).toInt()
+        
+        val layoutParams = FrameLayout.LayoutParams(width, height).apply {
+            leftMargin = x
+            topMargin = y
+        }
+        
+        scrollingTextView.layoutParams = layoutParams
+        scrollingTextView.elevation = scrollText.zIndex.toFloat()
+        
+        container.addView(scrollingTextView)
+        scrollingTexts.add(scrollingTextView)
+        
+        // Start scrolling animation
+        scrollingTextView.post {
+            scrollingTextView.startScrolling()
+        }
+        
+        Log.d(TAG, "Created scrolling text: '${scrollText.text}' at x=$x, y=$y, w=$width, h=$height")
     }
     
     private fun positionSection(sectionView: SectionPlayerView, section: LayoutSectionDto) {
@@ -137,17 +191,21 @@ class LayoutPlayerFragment : Fragment() {
     override fun onPause() {
         super.onPause()
         sectionPlayers.forEach { it.pause() }
+        scrollingTexts.forEach { it.pauseScrolling() }
     }
     
     override fun onResume() {
         super.onResume()
         sectionPlayers.forEach { it.resume() }
+        scrollingTexts.forEach { it.resumeScrolling() }
     }
     
     override fun onDestroyView() {
         super.onDestroyView()
         sectionPlayers.forEach { it.release() }
         sectionPlayers.clear()
+        scrollingTexts.forEach { it.stopScrolling() }
+        scrollingTexts.clear()
         _binding = null
     }
 }

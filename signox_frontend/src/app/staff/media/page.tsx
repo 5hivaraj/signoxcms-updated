@@ -23,6 +23,8 @@ type Media = {
   createdAt: string;
   endDate?: string | null;
   tags?: string[];
+  thumbnailUrl?: string | null;
+  previewUrl?: string | null;
 };
 
 type StorageInfo = {
@@ -193,18 +195,53 @@ export default function StaffMediaPage() {
                   <div className="relative aspect-video bg-gray-100">
                     {item.type === 'IMAGE' ? (
                       <img
-                        src={`${publicBaseUrl}${item.url}`}
+                        src={item.thumbnailUrl ? `${publicBaseUrl}${item.thumbnailUrl}` : `${publicBaseUrl}${item.url}`}
                         alt={item.name}
                         className="h-full w-full object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
+                          // If thumbnail failed, try original image
+                          if (item.thumbnailUrl && target.src.includes(item.thumbnailUrl)) {
+                            target.src = `${publicBaseUrl}${item.url}`;
+                            return;
+                          }
+                          // If original also failed, show placeholder
                           target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23ddd" width="100" height="100"/%3E%3Ctext fill="%23999" font-family="sans-serif" font-size="14" x="50%" y="50%" text-anchor="middle" dy=".3em"%3EFailed to load%3C/text%3E%3C/svg%3E';
                         }}
                       />
                     ) : (
-                      <div className="flex h-full items-center justify-center bg-gray-900">
-                        <Video className="h-12 w-12 text-white opacity-50" />
-                      </div>
+                      // For videos, show thumbnail if available, otherwise show video icon
+                      item.thumbnailUrl ? (
+                        <div className="relative h-full w-full">
+                          <img
+                            src={`${publicBaseUrl}${item.thumbnailUrl}`}
+                            alt={item.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const placeholder = target.parentElement?.querySelector('.video-placeholder');
+                              if (placeholder) {
+                                (placeholder as HTMLElement).style.display = 'flex';
+                              }
+                            }}
+                          />
+                          {/* Video play overlay */}
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                            <div className="rounded-full bg-black/60 p-3">
+                              <Video className="h-8 w-8 text-white" />
+                            </div>
+                          </div>
+                          {/* Video placeholder for failed thumbnail loads */}
+                          <div className="video-placeholder absolute inset-0 hidden items-center justify-center bg-gray-900 text-white">
+                            <Video className="h-12 w-12 opacity-50" />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex h-full items-center justify-center bg-gray-900">
+                          <Video className="h-12 w-12 text-white opacity-50" />
+                        </div>
+                      )
                     )}
                     {item.endDate && new Date(item.endDate) < new Date() && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">

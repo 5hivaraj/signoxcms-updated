@@ -2,6 +2,33 @@ const prisma = require('../config/db');
 const { getClientAdminId } = require('../utils/storage.utils');
 
 /**
+ * Calculate display status based on last heartbeat
+ * @param {Object} display - Display object with lastHeartbeat and isPaired
+ * @returns {string} Status: 'ONLINE', 'OFFLINE', 'PAIRING', 'ERROR'
+ */
+const calculateDisplayStatus = (display) => {
+  if (!display.isPaired) {
+    return 'PAIRING';
+  }
+  
+  if (!display.lastHeartbeat) {
+    return 'OFFLINE';
+  }
+  
+  const now = new Date();
+  const lastHeartbeat = new Date(display.lastHeartbeat);
+  const timeDiff = (now - lastHeartbeat) / 1000; // seconds
+  
+  // Consider display offline if no heartbeat for 60 seconds or more
+  // (heartbeat interval is 30 seconds, so 60 seconds gives some buffer)
+  if (timeDiff >= 60) {
+    return 'OFFLINE';
+  }
+  
+  return 'ONLINE';
+};
+
+/**
  * GET /api/proof-of-play
  * Get proof of play data for displays in the user's organization
  * Shows display activity, assigned content, and playback information
@@ -199,9 +226,8 @@ exports.getProofOfPlay = async (req, res) => {
 
     // Calculate display status and format proof of play data
     const proofOfPlayData = displays.map(display => {
-      // Determine if display is online (heartbeat within last 2 minutes)
-      const isOnline = display.lastHeartbeat && 
-        (new Date() - new Date(display.lastHeartbeat)) < 2 * 60 * 1000;
+      // Use consistent status calculation
+      const status = calculateDisplayStatus(display);
 
       // Get media items from playlist or layout
       const mediaItems = [];
@@ -242,7 +268,7 @@ exports.getProofOfPlay = async (req, res) => {
           id: display.id,
           name: display.name || 'Unnamed Display',
           location: display.location,
-          status: isOnline ? 'ONLINE' : 'OFFLINE',
+          status: status,
           lastHeartbeat: display.lastHeartbeat,
           lastSeenAt: display.lastSeenAt,
           pairedAt: display.pairedAt,

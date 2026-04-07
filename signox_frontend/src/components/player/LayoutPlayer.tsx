@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
+import { ScrollingText, ScrollDirection } from '@/components/ui/scrolling-text';
 
 type MediaType = 'IMAGE' | 'VIDEO';
 
@@ -24,6 +25,23 @@ export type LayoutSectionItem = {
   media: LayoutMedia;
 };
 
+export type ScrollTextData = {
+  id: string;
+  text: string;
+  direction: ScrollDirection;
+  speed: number;
+  fontSize: number;
+  fontColor: string;
+  backgroundColor?: string;
+  isOverlay: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
+  sectionId?: string;
+};
+
 const objectFitFromResizeMode = (mode: string) =>
   mode === 'FILL' ? 'cover' : mode === 'STRETCH' ? 'fill' : 'contain';
 
@@ -37,7 +55,18 @@ export type LayoutSection = {
   height: number; // percentage
   loopEnabled: boolean;
   frequency?: number | null;
+  type?: 'media' | 'text';
+  textConfig?: {
+    text: string;
+    direction: ScrollDirection;
+    speed: number;
+    fontSize: number;
+    fontWeight: 'normal' | 'bold' | 'bolder' | 'lighter';
+    textColor: string;
+    backgroundColor: string;
+  };
   items: LayoutSectionItem[];
+  scrollTexts?: ScrollTextData[];
 };
 
 export type Layout = {
@@ -47,6 +76,7 @@ export type Layout = {
   height: number;
   orientation?: 'LANDSCAPE' | 'PORTRAIT';
   sections: LayoutSection[];
+  scrollTexts?: ScrollTextData[];
 };
 
 export function LayoutPlayer({
@@ -67,11 +97,12 @@ export function LayoutPlayer({
     layoutRef.current = layout;
   }, [layout]);
 
-  // Initialize section states - only for sections with items
+  // Initialize section states - only for sections with items (media sections)
   useEffect(() => {
     const initialStates: Record<string, { currentIdx: number }> = {};
     layout.sections.forEach((section) => {
-      if (section.items && section.items.length > 0) {
+      // Only initialize state for media sections with items
+      if (section.type !== 'text' && section.items && section.items.length > 0) {
         initialStates[section.id] = {
           currentIdx: 0,
         };
@@ -91,7 +122,8 @@ export function LayoutPlayer({
     const currentLayout = layoutRef.current;
     
     currentLayout.sections.forEach((section) => {
-      if (!section.items || section.items.length === 0) return;
+      // Skip text sections - they don't need timers
+      if (section.type === 'text' || !section.items || section.items.length === 0) return;
 
       const state = sectionStates[section.id];
       if (!state) return;
@@ -219,80 +251,107 @@ export function LayoutPlayer({
     };
   }, []);
 
-  // Setup HLS for video sections
+  // Setup HLS for video sections with debounce
   useEffect(() => {
-    layout.sections.forEach((section) => {
-      const currentItem = getCurrentItem(section);
-      if (!currentItem || currentItem.media.type !== 'VIDEO') return;
+    const timeoutId = setTimeout(() => {
+      const setupVideos = async () => {
+        for (const section of layout.sections) {
+          // Skip text sections
+          if (section.type === 'text') continue;
+          
+          const currentItem = getCurrentItem(section);
+          if (!currentItem || currentItem.media.type !== 'VIDEO') continue;
 
-      const videoEl = videoRefs.current[section.id];
-      if (!videoEl) return;
+          const videoEl = videoRefs.current[section.id];
+          if (!videoEl) continue;
 
-      const url = `${publicBaseUrl}${currentItem.media.url}`;
-      const isHLS = url.includes('.m3u8');
+          const url = `${publicBaseUrl}${currentItem.media.url}`;
+          const isHLS = url.includes('.m3u8');
 
-      // Cleanup existing HLS instance
-      if (hlsRefs.current[section.id]) {
-        hlsRefs.current[section.id]?.destroy();
-        hlsRefs.current[section.id] = null;
-      }
-
-      if (isHLS && Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: true,
-          lowLatencyMode: false,
-          backBufferLength: 90,
-        });
-
-        hlsRefs.current[section.id] = hls;
-        hls.loadSource(url);
-        hls.attachMedia(videoEl);
-
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          videoEl.play().catch(err => {
-            console.error('HLS playback error:', err);
-          });
-        });
-
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error('HLS error:', data);
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                console.error('Fatal network error, trying to recover');
-                hls.startLoad();
-                break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                console.error('Fatal media error, trying to recover');
-                hls.recoverMediaError();
-                break;
-              default:
-                console.error('Fatal error, cannot recover');
-                handleVideoEnd(section.id);
-                break;
-            }
+          // Cleanup existing HLS instance
+          if (hlsRefs.current[section.id]) {
+            hlsRefs.current[section.id]?.destroy();
+            hlsRefs.current[section.id] = null;
           }
-        });
-      } else if (isHLS && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native HLS support (Safari)
-        videoEl.src = url;
-        videoEl.play().catch(err => {
-          console.error('Native HLS playback error:', err);
-        });
-      } else if (!isHLS) {
-        // Regular video file
-        videoEl.src = url;
-        videoEl.play().catch(err => {
-          console.error('Video playback error:', err);
-        });
-      }
-    });
+
+          // Reset video element
+          videoEl.pause();
+          videoEl.removeAttribute('src');
+          videoEl.load();
+
+          try {
+            if (isHLS && Hls.isSupported()) {
+              const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: false,
+                backBufferLength: 90,
+                maxBufferLength: 30,
+                maxMaxBufferLength: 60,
+              });
+
+              hlsRefs.current[section.id] = hls;
+              hls.loadSource(url);
+              hls.attachMedia(videoEl);
+
+              hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                videoEl.play().catch(err => {
+                  console.warn('HLS playback delayed:', err.message);
+                });
+              });
+
+              hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error('HLS error:', data);
+                if (data.fatal) {
+                  switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                      console.error('Fatal network error, trying to recover');
+                      hls.startLoad();
+                      break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                      console.error('Fatal media error, trying to recover');
+                      hls.recoverMediaError();
+                      break;
+                    default:
+                      console.error('Fatal error, cannot recover');
+                      handleVideoEnd(section.id);
+                      break;
+                  }
+                }
+              });
+            } else if (isHLS && videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+              // Native HLS support (Safari)
+              videoEl.src = url;
+              await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+              videoEl.play().catch(err => {
+                console.warn('Native HLS playback delayed:', err.message);
+              });
+            } else if (!isHLS) {
+              // Regular video file
+              videoEl.src = url;
+              await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+              videoEl.play().catch(err => {
+                console.warn('Video playback delayed:', err.message);
+              });
+            }
+          } catch (error) {
+            console.error('Video setup error:', error);
+          }
+        }
+      };
+
+      setupVideos();
+    }, 100); // 100ms debounce
 
     // Cleanup on unmount
     return () => {
+      clearTimeout(timeoutId);
       Object.values(hlsRefs.current).forEach(hls => {
         if (hls) {
-          hls.destroy();
+          try {
+            hls.destroy();
+          } catch (e) {
+            console.warn('HLS cleanup error:', e);
+          }
         }
       });
       hlsRefs.current = {};
@@ -360,9 +419,14 @@ export function LayoutPlayer({
           disableRemotePlayback
           loop={section.loopEnabled && section.items.length === 1}
           onEnded={() => handleVideoEnd(section.id)}
-          onError={() => {
-            console.error('Failed to load video:', currentItem.media?.url);
-            handleVideoEnd(section.id);
+          onError={(e) => {
+            console.warn('Video error (will retry):', currentItem.media?.url, e.currentTarget.error);
+            // Don't immediately fail, let it try to recover
+            setTimeout(() => handleVideoEnd(section.id), 1000);
+          }}
+          onAbort={(e) => {
+            console.warn('Video aborted (normal during transitions):', currentItem.media?.url);
+            // Don't treat abort as an error - it's normal during component updates
           }}
           onContextMenu={(e) => e.preventDefault()}
         />
@@ -390,10 +454,26 @@ export function LayoutPlayer({
               width: `${section.width}%`,
               height: `${section.height}%`,
               overflow: 'hidden',
-              zIndex: section.order || 0,
+              zIndex: section.order + 10, // Ensure proper layering for overlays
             }}
           >
-            {currentItem && currentItem.media ? renderSectionMedia(section, currentItem) : null}
+            {section.type === 'text' && section.textConfig ? (
+              <>
+                {console.log(`[DEBUG] Rendering text section: ${section.name}`, section.textConfig)}
+                <ScrollingText
+                  text={section.textConfig.text}
+                  direction={section.textConfig.direction}
+                  speed={section.textConfig.speed}
+                  fontSize={section.textConfig.fontSize}
+                  fontWeight={section.textConfig.fontWeight}
+                  textColor={section.textConfig.textColor}
+                  backgroundColor={section.textConfig.backgroundColor}
+                  className="w-full h-full"
+                />
+              </>
+            ) : (
+              currentItem && currentItem.media ? renderSectionMedia(section, currentItem) : null
+            )}
           </div>
         );
       })}

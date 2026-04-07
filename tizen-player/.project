@@ -6,12 +6,12 @@
 	</projects>
 	<buildSpec>
 		<buildCommand>
-			<name>org.tizen.web.project.builder.WebBuilder</name>
+			<name>org.tizen.web.project.builder.TizenWebBuilder</name>
 			<arguments>
 			</arguments>
 		</buildCommand>
 	</buildSpec>
 	<natures>
-		<nature>org.tizen.web.project.builder.WebNature</nature>
+		<nature>org.tizen.web.project.builder.TizenWebNature</nature>
 	</natures>
 </projectDescription>

@@ -123,8 +123,8 @@ export default function ClientUsersPage() {
   // 4. Handle Password Reset
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword || newPassword.length < 6) {
-      alert('Password must be at least 6 characters long');
+    if (!newPassword) {
+      alert('Password is required');
       return;
     }
 
@@ -242,10 +242,9 @@ export default function ClientUsersPage() {
                 <Input 
                   required 
                   type="password" 
-                  placeholder="Enter new password (min 6 characters)"
+                  placeholder="Enter new password"
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
-                  minLength={6}
                   disabled={resetting}
                 />
               </div>

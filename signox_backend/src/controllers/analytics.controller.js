@@ -1,6 +1,33 @@
 const prisma = require('../config/db');
 
 /**
+ * Calculate display status based on last heartbeat
+ * @param {Object} display - Display object with lastHeartbeat and isPaired
+ * @returns {string} Status: 'ONLINE', 'OFFLINE', 'PAIRING', 'ERROR'
+ */
+const calculateDisplayStatus = (display) => {
+  if (!display.isPaired) {
+    return 'PAIRING';
+  }
+  
+  if (!display.lastHeartbeat) {
+    return 'OFFLINE';
+  }
+  
+  const now = new Date();
+  const lastHeartbeat = new Date(display.lastHeartbeat);
+  const timeDiff = (now - lastHeartbeat) / 1000; // seconds
+  
+  // Consider display offline if no heartbeat for 60 seconds or more
+  // (heartbeat interval is 30 seconds, so 60 seconds gives some buffer)
+  if (timeDiff >= 60) {
+    return 'OFFLINE';
+  }
+  
+  return 'ONLINE';
+};
+
+/**
  * GET /api/analytics/summary
  * Returns role-aware analytics for dashboards.
  */
@@ -14,12 +41,18 @@ exports.getSummary = async (req, res) => {
 
     if (user.role === 'SUPER_ADMIN') {
       console.log('📊 [ANALYTICS DEBUG] Super Admin requesting summary');
-      const [clientCount, displayCount, onlineDisplays] = await Promise.all([
-        prisma.user.count({ where: { role: 'CLIENT_ADMIN' } }),
-        // Only count paired displays (exclude PAIRING status)
-        prisma.display.count({ where: { isPaired: true } }),
-        prisma.display.count({ where: { status: 'ONLINE', isPaired: true } }),
-      ]);
+      
+      // Get all paired displays and calculate real-time status
+      const allDisplays = await prisma.display.findMany({
+        where: { isPaired: true },
+        select: { lastHeartbeat: true, isPaired: true }
+      });
+      
+      const clientCount = await prisma.user.count({ where: { role: 'CLIENT_ADMIN' } });
+      const displayCount = allDisplays.length;
+      const onlineDisplays = allDisplays.filter(display => 
+        calculateDisplayStatus(display) === 'ONLINE'
+      ).length;
 
       console.log('📊 [ANALYTICS DEBUG] Super Admin counts:', {
         clientCount,
@@ -45,7 +78,16 @@ exports.getSummary = async (req, res) => {
     }
 
     if (user.role === 'CLIENT_ADMIN') {
-      const [profile, userAdminCount, displayCount, onlineCount] = await Promise.all([
+      // Get all paired displays for this client and calculate real-time status
+      const clientDisplays = await prisma.display.findMany({
+        where: { 
+          clientAdminId: user.id,
+          isPaired: true 
+        },
+        select: { lastHeartbeat: true, isPaired: true }
+      });
+
+      const [profile, userAdminCount] = await Promise.all([
         prisma.clientProfile.findUnique({
           where: { clientAdminId: user.id },
         }),
@@ -55,21 +97,12 @@ exports.getSummary = async (req, res) => {
             managedByClientAdminId: user.id,
           },
         }),
-        // Only count paired displays
-        prisma.display.count({
-          where: { 
-            clientAdminId: user.id,
-            isPaired: true 
-          },
-        }),
-        prisma.display.count({
-          where: { 
-            clientAdminId: user.id,
-            isPaired: true,
-            status: 'ONLINE'
-          },
-        }),
       ]);
+
+      const displayCount = clientDisplays.length;
+      const onlineCount = clientDisplays.filter(display => 
+        calculateDisplayStatus(display) === 'ONLINE'
+      ).length;
 
       const totalDisplaysAllowed = profile?.maxDisplays ?? 0;
       const licenseExpiry = profile?.licenseExpiry ?? null;
@@ -96,13 +129,13 @@ exports.getSummary = async (req, res) => {
     if (user.role === 'USER_ADMIN') {
       console.log('📊 [ANALYTICS DEBUG] User Admin requesting summary:', user.email);
       const [myDisplays, mediaCount, playlistCount] = await Promise.all([
-        // Only get paired displays
+        // Only get paired displays with heartbeat data
         prisma.display.findMany({
           where: { 
             managedByUserId: user.id,
             isPaired: true 
           },
-          select: { status: true },
+          select: { lastHeartbeat: true, isPaired: true },
         }),
         prisma.media.count({
           where: { createdById: user.id },
@@ -119,8 +152,11 @@ exports.getSummary = async (req, res) => {
         playlistCount
       });
 
-      const online = myDisplays.filter((d) => d.status === 'ONLINE').length;
-      const offline = myDisplays.filter((d) => d.status !== 'ONLINE').length;
+      // Calculate real-time online/offline status
+      const online = myDisplays.filter(display => 
+        calculateDisplayStatus(display) === 'ONLINE'
+      ).length;
+      const offline = myDisplays.length - online;
 
       // Approximate storage: sum fileSize where available
       const storageAgg = await prisma.media.aggregate({

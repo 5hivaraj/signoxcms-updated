@@ -84,8 +84,8 @@ export default function ProfilePage() {
       return;
     }
 
-    if (passwordForm.newPassword.length < 6) {
-      setError('New password must be at least 6 characters long');
+    if (!passwordForm.newPassword) {
+      setError('New password is required');
       return;
     }
 
@@ -325,10 +325,9 @@ export default function ProfilePage() {
                     onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
                     required
                     disabled={updating}
-                    minLength={6}
                     className="h-12 border-gray-300 focus:border-yellow-400 focus:ring-yellow-400"
                   />
-                  <p className="text-xs text-gray-500">Minimum 6 characters</p>
+                  <p className="text-xs text-gray-500">Enter your new password</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="confirmPassword" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
@@ -342,7 +341,6 @@ export default function ProfilePage() {
                     onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
                     required
                     disabled={updating}
-                    minLength={6}
                     className="h-12 border-gray-300 focus:border-yellow-400 focus:ring-yellow-400"
                   />
                 </div>

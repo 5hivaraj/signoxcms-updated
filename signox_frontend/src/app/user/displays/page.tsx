@@ -64,10 +64,12 @@ export default function DisplaysPage() {
   const { user } = useAuth();
   const [displays, setDisplays] = useState<Display[]>([]);
   const [filteredDisplays, setFilteredDisplays] = useState<Display[]>([]);
+  const [selectedDisplayIds, setSelectedDisplayIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [displayLimits, setDisplayLimits] = useState<{maxDisplays: number, currentCount: number} | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [pairingCode, setPairingCode] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -445,6 +447,55 @@ export default function DisplaysPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedDisplayIds.length === 0) return;
+    
+    const selectedDisplays = displays.filter(d => selectedDisplayIds.includes(d.id));
+    const pairedCount = selectedDisplays.filter(d => d.isPaired).length;
+    
+    let confirmMessage = `Are you sure you want to delete ${selectedDisplayIds.length} displays?`;
+    if (pairedCount > 0) {
+      confirmMessage += ` ${pairedCount} of these displays are currently paired and will be disconnected.`;
+    }
+    confirmMessage += ' This action cannot be undone.';
+
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setBulkDeleting(true);
+      // Delete displays one by one (you could also create a bulk delete API endpoint)
+      for (const displayId of selectedDisplayIds) {
+        await api.delete(`/displays/${displayId}`);
+      }
+      setSelectedDisplayIds([]);
+      await fetchDisplays(false);
+    } catch (error: any) {
+      console.error('Failed to delete displays:', error);
+      const errorMessage = error?.response?.data?.error || error?.response?.data?.message || 'Failed to delete displays. Please try again.';
+      alert(errorMessage);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleDisplaySelection = (displayId: string) => {
+    setSelectedDisplayIds(prev => 
+      prev.includes(displayId) 
+        ? prev.filter(id => id !== displayId)
+        : [...prev, displayId]
+    );
+  };
+
+  const selectAllDisplays = () => {
+    if (selectedDisplayIds.length === filteredDisplays.length) {
+      setSelectedDisplayIds([]);
+    } else {
+      setSelectedDisplayIds(filteredDisplays.map(d => d.id));
+    }
+  };
+
   const getStatusColor = (display: Display) => {
     if (display.status === 'ONLINE') return 'bg-green-500';
     if (display.status === 'OFFLINE') return 'bg-red-500';
@@ -516,19 +567,31 @@ export default function DisplaysPage() {
                   )}
                 </div>
               </div>
-              <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button 
-                    disabled={
-                      !!displayLimits &&
-                      displayLimits.currentCount >= displayLimits.maxDisplays
-                    }
-                    className="h-12 gap-2 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black font-bold shadow-lg hover:shadow-yellow-500/50 transition-all duration-300 hover:scale-105"
+              <div className="flex items-center gap-3">
+                {selectedDisplayIds.length > 0 && canDelete && (
+                  <Button
+                    onClick={handleBulkDelete}
+                    disabled={bulkDeleting}
+                    variant="destructive"
+                    className="h-12 gap-2 font-bold shadow-lg"
                   >
-                    <Plus className="h-5 w-5" />
-                    Add Display
+                    {bulkDeleting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Trash2 className="h-5 w-5" />}
+                    Delete Selected ({selectedDisplayIds.length})
                   </Button>
-                </DialogTrigger>
+                )}
+                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button 
+                      disabled={
+                        !!displayLimits &&
+                        displayLimits.currentCount >= displayLimits.maxDisplays
+                      }
+                      className="h-12 gap-2 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black font-bold shadow-lg hover:shadow-yellow-500/50 transition-all duration-300 hover:scale-105"
+                    >
+                      <Plus className="h-5 w-5" />
+                      Add Display
+                    </Button>
+                  </DialogTrigger>
                 <DialogContent className="sm:max-w-[425px] bg-white">
                   <DialogHeader>
                     <DialogTitle className="text-2xl">Pair New Display</DialogTitle>
@@ -606,6 +669,7 @@ export default function DisplaysPage() {
               </form>
             </DialogContent>
           </Dialog>
+              </div>
             </div>
           </div>
         </div>
@@ -661,22 +725,89 @@ export default function DisplaysPage() {
             )}
           </div>
         ) : (
-          <div className="rounded-2xl border border-gray-200 bg-white shadow-lg overflow-hidden">
+          <>
+            {/* Floating Action Bar - appears when displays are selected */}
+            {selectedDisplayIds.length > 0 && (
+              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 shadow-lg" data-aos="fade-down">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </div>
+                      <span className="font-semibold text-red-900">
+                        {selectedDisplayIds.length} display{selectedDisplayIds.length !== 1 ? 's' : ''} selected
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => setSelectedDisplayIds([])}
+                      className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleBulkDelete}
+                      disabled={bulkDeleting}
+                      className="bg-red-600 hover:bg-red-700 text-white font-semibold gap-2"
+                    >
+                      {bulkDeleting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 className="h-4 w-4" />
+                          Delete Selected
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-lg overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
+                  {canDelete && (
+                    <TableHead className="w-[50px]">
+                      <input
+                        type="checkbox"
+                        checked={selectedDisplayIds.length === filteredDisplays.length && filteredDisplays.length > 0}
+                        onChange={selectAllDisplays}
+                        className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead className="w-[100px]">Status</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Current Content</TableHead>
-                  <TableHead>Pairing Code</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Last Seen</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="min-w-[150px]">Name</TableHead>
+                  <TableHead className="min-w-[180px]">Current Content</TableHead>
+                  <TableHead className="w-[120px]">Pairing Code</TableHead>
+                  <TableHead className="min-w-[120px]">Location</TableHead>
+                  <TableHead className="w-[140px]">Last Seen</TableHead>
+                  {selectedDisplayIds.length === 0 && (
+                    <TableHead className="text-right w-[120px]">Actions</TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredDisplays.map((display) => (
                   <TableRow key={display.id}>
+                    {canDelete && (
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          checked={selectedDisplayIds.includes(display.id)}
+                          onChange={() => toggleDisplaySelection(display.id)}
+                          className="rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
+                        />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div
@@ -727,42 +858,45 @@ export default function DisplaysPage() {
                     <TableCell className="text-sm text-gray-500">
                       {formatDate(display.lastHeartbeat)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => openEditDialog(display)}
-                          title="Edit display"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        {canAssign && (
+                    {selectedDisplayIds.length === 0 && (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
                           <Button
                             variant="outline"
                             size="icon"
-                            onClick={() => openAssignDialog(display)}
-                            title="Assign Content"
+                            onClick={() => openEditDialog(display)}
+                            title="Edit display"
                           >
-                            <Calendar className="h-4 w-4" />
+                            <Edit className="h-4 w-4" />
                           </Button>
-                        )}
-                        {canDelete && (
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => handleDelete(display.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-red-600" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
+                          {canAssign && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => openAssignDialog(display)}
+                              title="Assign Content"
+                            >
+                              <Calendar className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleDelete(display.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </div>
+            </div>
+          </>
         )}
       </div>
 

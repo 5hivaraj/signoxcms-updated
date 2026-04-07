@@ -632,10 +632,6 @@ exports.updatePassword = async (req, res) => {
       return res.status(400).json({ message: 'Current password and new password are required' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters long' });
-    }
-
     // Get current user
     const user = await prisma.user.findUnique({
       where: { id: userId }
@@ -774,10 +770,6 @@ exports.resetUserPassword = async (req, res) => {
 
     if (!id) return res.status(400).json({ message: 'User ID is required' });
     if (!newPassword) return res.status(400).json({ message: 'New password is required' });
-    
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters long' });
-    }
 
     const target = await prisma.user.findUnique({
       where: { id },

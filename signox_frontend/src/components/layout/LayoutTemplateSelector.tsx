@@ -24,19 +24,11 @@ export type LayoutTemplate = {
     y: number;
     width: number;
     height: number;
+    type?: 'media' | 'text'; // New field to distinguish section types
   }[];
 };
 
 export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
-  {
-    id: 'custom',
-    name: 'Make Custom Layout',
-    description: 'Start from scratch with a blank canvas',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [],
-  },
   {
     id: 'single-pane',
     name: 'Single Pane',
@@ -49,131 +41,6 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     ],
   },
   {
-    id: 'three-panes-horizontal',
-    name: 'Three Panes',
-    description: 'Top horizontal, bottom two vertical',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 100, height: 50 },
-      { name: 'Section 2', order: 1, x: 0, y: 50, width: 50, height: 50 },
-      { name: 'Section 3', order: 2, x: 50, y: 50, width: 50, height: 50 },
-    ],
-  },
-  {
-    id: 'two-panes-vertical',
-    name: 'Two Panes (Vertical)',
-    description: 'Split screen vertically',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 50, height: 100 },
-      { name: 'Section 2', order: 1, x: 50, y: 0, width: 50, height: 100 },
-    ],
-  },
-  {
-    id: 'two-panes-horizontal',
-    name: 'Two Panes (Horizontal)',
-    description: 'Split screen horizontally',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 100, height: 50 },
-      { name: 'Section 2', order: 1, x: 0, y: 50, width: 100, height: 50 },
-    ],
-  },
-  {
-    id: 'four-quadrants',
-    name: 'Four Quadrants',
-    description: 'Four equal sections in a grid',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 50, height: 50 },
-      { name: 'Section 2', order: 1, x: 50, y: 0, width: 50, height: 50 },
-      { name: 'Section 3', order: 2, x: 0, y: 50, width: 50, height: 50 },
-      { name: 'Section 4', order: 3, x: 50, y: 50, width: 50, height: 50 },
-    ],
-  },
-  {
-    id: 'single-pane-portrait',
-    name: 'Single Pane (Portrait)',
-    description: 'Full screen portrait layout',
-    width: 1080,
-    height: 1920,
-    orientation: 'PORTRAIT',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 100, height: 100 },
-    ],
-  },
-  {
-    id: 'portrait-with-bar',
-    name: 'Portrait with Bottom Bar',
-    description: 'Portrait layout with footer zone',
-    width: 1080,
-    height: 1920,
-    orientation: 'PORTRAIT',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 100, height: 90 },
-      { name: 'Section 2', order: 1, x: 0, y: 90, width: 100, height: 10 },
-    ],
-  },
-  {
-    id: 'two-panes-portrait-vertical',
-    name: 'Two Panes (Portrait Vertical)',
-    description: 'Portrait split vertically',
-    width: 1080,
-    height: 1920,
-    orientation: 'PORTRAIT',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 50, height: 100 },
-      { name: 'Section 2', order: 1, x: 50, y: 0, width: 50, height: 100 },
-    ],
-  },
-  {
-    id: 'portrait-three-sections',
-    name: 'Portrait Three Sections',
-    description: 'Portrait with top, middle, and bottom sections',
-    width: 1080,
-    height: 1920,
-    orientation: 'PORTRAIT',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 100, height: 33.33 },
-      { name: 'Section 2', order: 1, x: 0, y: 33.33, width: 100, height: 33.33 },
-      { name: 'Section 3', order: 2, x: 0, y: 66.66, width: 100, height: 33.34 },
-    ],
-  },
-  {
-    id: 'l-shape-right',
-    name: 'L-Shape (Right)',
-    description: 'L-shaped layout with main area and right sidebar',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 70, height: 100 },
-      { name: 'Section 2', order: 1, x: 70, y: 0, width: 30, height: 50 },
-      { name: 'Section 3', order: 2, x: 70, y: 50, width: 30, height: 50 },
-    ],
-  },
-  {
-    id: 'l-shape-left',
-    name: 'L-Shape (Left)',
-    description: 'L-shaped layout with main area and left sidebar',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [
-      { name: 'Section 1', order: 0, x: 30, y: 0, width: 70, height: 100 },
-      { name: 'Section 2', order: 1, x: 0, y: 0, width: 30, height: 50 },
-      { name: 'Section 3', order: 2, x: 0, y: 50, width: 30, height: 50 },
-    ],
-  },
-  {
     id: 'split-2-horiz',
     name: 'Split 2 Horizontal',
     description: 'Two equal horizontal sections',
@@ -183,6 +50,18 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     sections: [
       { name: 'Section 1', order: 0, x: 0, y: 0, width: 50, height: 100 },
       { name: 'Section 2', order: 1, x: 50, y: 0, width: 50, height: 100 },
+    ],
+  },
+  {
+    id: 'split-2-vert',
+    name: 'Split 2 Vertical',
+    description: 'Two equal vertical sections',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Section 1', order: 0, x: 0, y: 0, width: 100, height: 50 },
+      { name: 'Section 2', order: 1, x: 0, y: 50, width: 100, height: 50 },
     ],
   },
   {
@@ -199,18 +78,6 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     ],
   },
   {
-    id: 'split-2-vert',
-    name: 'Split 2 Vertical',
-    description: 'Two equal vertical sections',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 100, height: 50 },
-      { name: 'Section 2', order: 1, x: 0, y: 50, width: 100, height: 50 },
-    ],
-  },
-  {
     id: 'split-3-vert',
     name: 'Split 3 Vertical',
     description: 'Three equal vertical sections',
@@ -224,27 +91,17 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     ],
   },
   {
-    id: 'main-sidebar',
-    name: 'Main + Sidebar',
-    description: 'Large main area with sidebar',
+    id: 'four-grid',
+    name: 'Four Grid',
+    description: 'Four equal sections in a 2x2 grid',
     width: 1920,
     height: 1080,
     orientation: 'LANDSCAPE',
     sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 75, height: 100 },
-      { name: 'Section 2', order: 1, x: 75, y: 0, width: 25, height: 100 },
-    ],
-  },
-  {
-    id: 'top-bar-main',
-    name: 'Top Bar + Main',
-    description: 'Top banner with main content area',
-    width: 1920,
-    height: 1080,
-    orientation: 'LANDSCAPE',
-    sections: [
-      { name: 'Section 1', order: 0, x: 0, y: 0, width: 100, height: 20 },
-      { name: 'Section 2', order: 1, x: 0, y: 20, width: 100, height: 80 },
+      { name: 'Section 1', order: 0, x: 0, y: 0, width: 50, height: 50 },
+      { name: 'Section 2', order: 1, x: 50, y: 0, width: 50, height: 50 },
+      { name: 'Section 3', order: 2, x: 0, y: 50, width: 50, height: 50 },
+      { name: 'Section 4', order: 3, x: 50, y: 50, width: 50, height: 50 },
     ],
   },
   {
@@ -282,6 +139,142 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       { name: 'Section 9', order: 8, x: 66.66, y: 66.66, width: 33.34, height: 33.34 },
     ],
   },
+  {
+    id: 'l-shape-left',
+    name: 'L-Shape Left',
+    description: 'L-shaped layout with main area and left sidebar',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Main Content', order: 0, x: 30, y: 0, width: 70, height: 100 },
+      { name: 'Left Top', order: 1, x: 0, y: 0, width: 30, height: 50 },
+      { name: 'Left Bottom', order: 2, x: 0, y: 50, width: 30, height: 50 },
+    ],
+  },
+  {
+    id: 'l-shape-right',
+    name: 'L-Shape Right',
+    description: 'L-shaped layout with main area and right sidebar',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Main Content', order: 0, x: 0, y: 0, width: 70, height: 100 },
+      { name: 'Right Top', order: 1, x: 70, y: 0, width: 30, height: 50 },
+      { name: 'Right Bottom', order: 2, x: 70, y: 50, width: 30, height: 50 },
+    ],
+  },
+  {
+    id: 'main-sidebar',
+    name: 'Main + Side',
+    description: 'Large main area with sidebar',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Main Content', order: 0, x: 0, y: 0, width: 75, height: 100 },
+      { name: 'Sidebar', order: 1, x: 75, y: 0, width: 25, height: 100 },
+    ],
+  },
+  {
+    id: 'main-top',
+    name: 'Main + Top',
+    description: 'Top banner with main content area',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Top Banner', order: 0, x: 0, y: 0, width: 100, height: 20 },
+      { name: 'Main Content', order: 1, x: 0, y: 20, width: 100, height: 80 },
+    ],
+  },
+  {
+    id: 'main-bottom',
+    name: 'Main + Bottom',
+    description: 'Main content with bottom banner',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Main Content', order: 0, x: 0, y: 0, width: 100, height: 80 },
+      { name: 'Bottom Banner', order: 1, x: 0, y: 80, width: 100, height: 20 },
+    ],
+  },
+  // Scrolling text variants
+  {
+    id: 'main-with-scroll-bottom',
+    name: 'Main + Bottom Scroll',
+    description: 'Main content area with bottom scrolling text',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Main Content', order: 0, x: 0, y: 0, width: 100, height: 85, type: 'media' },
+      { name: 'Bottom Scroll Text', order: 1, x: 0, y: 85, width: 100, height: 15, type: 'text' },
+    ],
+  },
+  {
+    id: 'main-with-scroll-top',
+    name: 'Main + Top Scroll',
+    description: 'Main content area with top scrolling text',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Top Scroll Text', order: 0, x: 0, y: 0, width: 100, height: 15, type: 'text' },
+      { name: 'Main Content', order: 1, x: 0, y: 15, width: 100, height: 85, type: 'media' },
+    ],
+  },
+  {
+    id: 'main-with-scroll-side',
+    name: 'Main + Side Scroll',
+    description: 'Main content with side scrolling text',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Main Content', order: 0, x: 0, y: 0, width: 80, height: 100, type: 'media' },
+      { name: 'Side Scroll Text', order: 1, x: 80, y: 0, width: 20, height: 100, type: 'text' },
+    ],
+  },
+  {
+    id: 'dual-with-scroll',
+    name: 'Dual + Bottom Scroll',
+    description: 'Two content areas with bottom scrolling text',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Content Left', order: 0, x: 0, y: 0, width: 50, height: 85, type: 'media' },
+      { name: 'Content Right', order: 1, x: 50, y: 0, width: 50, height: 85, type: 'media' },
+      { name: 'Bottom Scroll Text', order: 2, x: 0, y: 85, width: 100, height: 15, type: 'text' },
+    ],
+  },
+  {
+    id: 'triple-with-scroll',
+    name: 'Triple + Scroll',
+    description: 'Three content areas with scrolling text banner',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [
+      { name: 'Top Scroll Banner', order: 0, x: 0, y: 0, width: 100, height: 12, type: 'text' },
+      { name: 'Content Left', order: 1, x: 0, y: 12, width: 33.33, height: 88, type: 'media' },
+      { name: 'Content Center', order: 2, x: 33.33, y: 12, width: 33.33, height: 88, type: 'media' },
+      { name: 'Content Right', order: 3, x: 66.66, y: 12, width: 33.34, height: 88, type: 'media' },
+    ],
+  },
+  // Custom layout option
+  {
+    id: 'custom',
+    name: 'Custom Layout',
+    description: 'Create your own custom layout with drag & drop sections',
+    width: 1920,
+    height: 1080,
+    orientation: 'LANDSCAPE',
+    sections: [], // Empty sections - user will create their own
+  },
 ];
 
 interface LayoutTemplateSelectorProps {
@@ -301,7 +294,7 @@ export function LayoutTemplateSelector({
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-gray-900">SELECT LAYOUT TEMPLATE</DialogTitle>
           <DialogDescription className="text-base text-gray-600 mt-2">
-            Choose a template to start with, or create a custom layout from scratch
+            Choose a template to start with
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-4 py-4">
@@ -314,52 +307,45 @@ export function LayoutTemplateSelector({
               }}
               className="group relative flex flex-col items-center justify-center p-4 border-2 border-gray-300 rounded-lg hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer bg-white min-h-[140px]"
             >
-              {template.id === 'custom' ? (
-                <div className="flex flex-col items-center">
-                  <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3 group-hover:bg-blue-50 transition-colors">
-                    <Plus className="h-8 w-8 text-gray-600 group-hover:text-blue-600" />
-                  </div>
-                  <span className="text-sm font-semibold text-center text-gray-900 group-hover:text-blue-700">
+              <div className="w-full space-y-3">
+                <div
+                  className="relative mx-auto border-2 border-gray-300 rounded bg-gray-50"
+                  style={{
+                    width: template.width > template.height ? '120px' : '60px',
+                    height: template.width > template.height ? '68px' : '120px',
+                    backgroundColor: '#f9fafb',
+                  }}
+                >
+                  {template.sections.map((section, idx) => {
+                    const sectionWidth = (section.width / 100) * (template.width > template.height ? 120 : 60);
+                    const sectionHeight = (section.height / 100) * (template.width > template.height ? 68 : 120);
+                    const sectionX = (section.x / 100) * (template.width > template.height ? 120 : 60);
+                    const sectionY = (section.y / 100) * (template.width > template.height ? 68 : 120);
+                    
+                    return (
+                      <div
+                        key={idx}
+                        className={`absolute border-2 rounded-sm ${
+                          section.type === 'text' 
+                            ? 'border-purple-500 bg-purple-100' 
+                            : 'border-blue-500 bg-blue-100'
+                        }`}
+                        style={{
+                          left: `${sectionX}px`,
+                          top: `${sectionY}px`,
+                          width: `${sectionWidth}px`,
+                          height: `${sectionHeight}px`,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="text-center px-2 min-h-[40px] flex items-center justify-center">
+                  <span className="text-sm font-bold text-gray-900 group-hover:text-blue-700 leading-tight break-words">
                     {template.name}
                   </span>
                 </div>
-              ) : (
-                <div className="w-full space-y-3">
-                  <div
-                    className="relative mx-auto border-2 border-gray-300 rounded bg-gray-50"
-                    style={{
-                      width: template.width > template.height ? '120px' : '60px',
-                      height: template.width > template.height ? '68px' : '120px',
-                      backgroundColor: '#f9fafb',
-                    }}
-                  >
-                    {template.sections.map((section, idx) => {
-                      const sectionWidth = (section.width / 100) * (template.width > template.height ? 120 : 60);
-                      const sectionHeight = (section.height / 100) * (template.width > template.height ? 68 : 120);
-                      const sectionX = (section.x / 100) * (template.width > template.height ? 120 : 60);
-                      const sectionY = (section.y / 100) * (template.width > template.height ? 68 : 120);
-                      
-                      return (
-                        <div
-                          key={idx}
-                          className="absolute border-2 border-blue-500 bg-blue-100 rounded-sm"
-                          style={{
-                            left: `${sectionX}px`,
-                            top: `${sectionY}px`,
-                            width: `${sectionWidth}px`,
-                            height: `${sectionHeight}px`,
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="text-center px-2 min-h-[40px] flex items-center justify-center">
-                    <span className="text-sm font-bold text-gray-900 group-hover:text-blue-700 leading-tight break-words">
-                      {template.name}
-                    </span>
-                  </div>
-                </div>
-              )}
+              </div>
             </button>
           ))}
         </div>

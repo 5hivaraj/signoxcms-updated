@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Loader2, Save, ArrowLeft, Plus, X, Pencil, Search, Upload, Image as ImageIcon, Video, Clock, HardDrive, Trash2, GripVertical, Play, FileVideo, RefreshCw, Layers } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, Plus, X, Pencil, Search, Upload, Image as ImageIcon, Video, Clock, HardDrive, Trash2, GripVertical, Play, FileVideo, RefreshCw, Layers, Type, Settings } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
   DndContext,
@@ -33,6 +33,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { LayoutPreview } from '@/components/layout/LayoutPreview';
+import { TextConfigDialog, TextConfig } from '@/components/layout/TextConfigDialog';
+import { ScrollingText } from '@/components/ui/scrolling-text';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 
@@ -78,6 +80,8 @@ type Section = {
   height: number;
   frequency?: number;
   loopEnabled: boolean;
+  type?: 'media' | 'text';
+  textConfig?: TextConfig;
   items: SectionItem[];
 };
 
@@ -96,16 +100,20 @@ function DroppableSection({
   section,
   isActive,
   onDrop,
+  onConfigureText,
   children,
 }: {
   section: Section;
   isActive: boolean;
   onDrop: (mediaId: string) => void;
+  onConfigureText?: () => void;
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `section-${section.id}`,
   });
+
+  const isTextSection = section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || section.name?.toLowerCase().includes('scroll') || section.name?.toLowerCase().includes('text');
 
   return (
     <div
@@ -114,6 +122,8 @@ function DroppableSection({
         isActive
           ? isOver
             ? 'border-blue-500 bg-blue-50'
+            : isTextSection
+            ? 'border-purple-300 bg-purple-50'
             : 'border-gray-300 bg-white'
           : 'border-gray-200 bg-gray-50 opacity-60'
       }`}
@@ -123,12 +133,39 @@ function DroppableSection({
         top: `${section.y}%`,
         width: `${section.width}%`,
         height: `${section.height}%`,
+        zIndex: section.order + 1, // Ensure proper layering in preview
       }}
     >
       {children}
-      {isOver && (
+      {isOver && !isTextSection && (
         <div className="absolute inset-0 bg-blue-200 bg-opacity-50 flex items-center justify-center rounded">
           <p className="text-blue-700 font-semibold">Drop media here</p>
+        </div>
+      )}
+      {isTextSection && section.textConfig && (
+        <div className="absolute inset-0 rounded overflow-hidden">
+          <ScrollingText
+            text={section.textConfig.text}
+            direction={section.textConfig.direction}
+            speed={section.textConfig.speed}
+            fontSize={Math.min(section.textConfig.fontSize, 16)} // Scale down for preview
+            fontWeight={section.textConfig.fontWeight}
+            textColor={section.textConfig.textColor}
+            backgroundColor={section.textConfig.backgroundColor}
+            className="w-full h-full"
+          />
+        </div>
+      )}
+      {isTextSection && !section.textConfig && isActive && onConfigureText && (
+        <div className="absolute inset-0 bg-purple-100 bg-opacity-80 flex items-center justify-center rounded">
+          <Button
+            size="sm"
+            onClick={onConfigureText}
+            className="bg-purple-500 hover:bg-purple-600 text-white"
+          >
+            <Type className="h-4 w-4 mr-2" />
+            Configure Text
+          </Button>
         </div>
       )}
     </div>
@@ -475,6 +512,8 @@ export default function LayoutBuilderPage() {
   const [addDialogSectionId, setAddDialogSectionId] = useState<string | null>(null);
   const [livePreviewOpen, setLivePreviewOpen] = useState(false);
   const [refreshingMedia, setRefreshingMedia] = useState(false);
+  const [textConfigOpen, setTextConfigOpen] = useState(false);
+  const [textConfigSectionId, setTextConfigSectionId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -765,6 +804,61 @@ export default function LayoutBuilderPage() {
     setAddDialogSectionId(null);
   }
 
+  function handleTextConfigConfirm(config: TextConfig) {
+    if (!layout || !textConfigSectionId) return;
+    
+    const updatedSections = layout.sections.map(section =>
+      section.id === textConfigSectionId
+        ? { ...section, textConfig: config }
+        : section
+    );
+    
+    setLayout({ ...layout, sections: updatedSections });
+    
+    // Save the text configuration to the backend
+    saveTextConfig(textConfigSectionId, config);
+    
+    setTextConfigOpen(false);
+    setTextConfigSectionId(null);
+  }
+
+  async function saveTextConfig(sectionId: string, config: TextConfig) {
+    try {
+      await api.put(`/layouts/${layoutId}/sections/${sectionId}/text-config`, config);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Failed to save text configuration');
+    }
+  }
+
+  function openTextConfig(sectionId: string) {
+    setTextConfigSectionId(sectionId);
+    setTextConfigOpen(true);
+  }
+
+  function updateSectionItemField(sectionId: string, itemId: string, field: 'orientation' | 'resizeMode' | 'rotation', value: OrientationType | ResizeModeType | RotationDeg) {
+    if (!layout) return;
+    const section = layout.sections.find(s => s.id === sectionId);
+    if (!section) return;
+    const updatedItems = section.items.map(item =>
+      item.id === itemId ? { ...item, [field]: value } : item
+    );
+    setLayout({
+      ...layout,
+      sections: layout.sections.map(s =>
+        s.id === sectionId ? { ...s, items: updatedItems } : s
+      ),
+    });
+    updateSection(sectionId, updatedItems);
+  }
+
+  function removeItemFromSection(sectionId: string, itemId: string) {
+    if (!layout) return;
+    const section = layout.sections.find(s => s.id === sectionId);
+    if (!section) return;
+    const updatedItems = section.items.filter(item => item.id !== itemId);
+    updateSection(sectionId, updatedItems);
+  }
+
   function updateSectionItemField(sectionId: string, itemId: string, field: 'orientation' | 'resizeMode' | 'rotation', value: OrientationType | ResizeModeType | RotationDeg) {
     if (!layout) return;
     const section = layout.sections.find(s => s.id === sectionId);
@@ -838,12 +932,12 @@ export default function LayoutBuilderPage() {
   
   // Wrap the entire page in DndContext
   const pageContent = (
-    <div className="flex h-[calc(100vh-12rem)] -m-6 -mx-6">
+    <div className="flex h-[calc(100vh-8rem)] -m-6 -mx-6">
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-white">
+      <div className="flex-1 flex flex-col bg-white overflow-hidden">
         {/* Header with gradient background */}
         <div 
-          className="relative overflow-hidden bg-gradient-to-br from-gray-900 to-black p-6 shadow-2xl"
+          className="relative overflow-hidden bg-gradient-to-br from-gray-900 to-black p-3 shadow-2xl flex-shrink-0"
           data-aos="fade-down"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-yellow-400/10 to-orange-500/10"></div>
@@ -955,46 +1049,46 @@ export default function LayoutBuilderPage() {
         </div>
 
         {/* Section Content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 bg-gray-50 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-3 bg-gray-50">
           {currentSection && (
-            <div className="max-w-6xl mx-auto space-y-6">
+            <div className="max-w-6xl mx-auto space-y-3">
               {/* Section Statistics */}
               {sectionStats && (
                 <div 
-                  className="grid grid-cols-4 gap-4"
+                  className="grid grid-cols-4 gap-3"
                   data-aos="fade-up"
                   data-aos-delay="100"
                 >
-                  <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-lg hover:shadow-xl transition-shadow">
+                  <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-md hover:shadow-lg transition-shadow">
                     <p className="text-xs text-gray-600 uppercase mb-1 font-semibold">TOTAL MEDIA</p>
-                    <p className="text-2xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">{sectionStats.totalMedia}</p>
+                    <p className="text-xl font-bold bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">{sectionStats.totalMedia}</p>
                   </div>
-                  <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-lg hover:shadow-xl transition-shadow">
+                  <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-md hover:shadow-lg transition-shadow">
                     <p className="text-xs text-gray-600 uppercase mb-1 font-semibold">DURATION</p>
-                    <p className="text-2xl font-bold text-gray-900">{sectionStats.totalDuration} sec</p>
+                    <p className="text-xl font-bold text-gray-900">{sectionStats.totalDuration} sec</p>
                   </div>
-                  <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-lg hover:shadow-xl transition-shadow">
+                  <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-md hover:shadow-lg transition-shadow">
                     <p className="text-xs text-gray-600 uppercase mb-1 font-semibold">TOTAL SIZE</p>
-                    <p className="text-2xl font-bold text-gray-900">
+                    <p className="text-xl font-bold text-gray-900">
                       {sectionStats.totalSize > 0 
                         ? `${(sectionStats.totalSize / 1024 / 1024).toFixed(2)} MB`
                         : '0 Bytes'}
                     </p>
                   </div>
-                  <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-lg hover:shadow-xl transition-shadow">
+                  <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-md hover:shadow-lg transition-shadow">
                     <p className="text-xs text-gray-600 uppercase mb-1 font-semibold">FREQUENCY</p>
-                    <p className="text-2xl font-bold text-gray-900">{sectionStats.frequency} times / Hour</p>
+                    <p className="text-xl font-bold text-gray-900">{sectionStats.frequency} times / Hour</p>
                   </div>
                 </div>
               )}
 
               {/* Layout Preview */}
               <div 
-                className="bg-white p-6 rounded-2xl border border-gray-200 shadow-lg"
+                className="bg-white p-3 rounded-xl border border-gray-200 shadow-md"
                 data-aos="fade-up"
                 data-aos-delay="200"
               >
-                <h3 className="text-sm font-semibold text-gray-700 mb-4">Layout Preview</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Layout Preview</h3>
                 <div className="flex justify-center">
                   <div className="relative bg-gray-100 border-2 border-gray-300 rounded overflow-hidden" style={{ width: `${previewWidth}px`, height: `${previewHeight}px` }}>
                     {layout.sections.map((section) => (
@@ -1009,15 +1103,33 @@ export default function LayoutBuilderPage() {
                             setAddDialogSectionId(section.id);
                           }
                         }}
+                        onConfigureText={() => openTextConfig(section.id)}
                       >
                         <div className="absolute inset-0 p-1 flex flex-col overflow-hidden">
-                          <div className="text-xs font-semibold text-gray-600 mb-0.5 truncate">{section.name}</div>
-                          {section.items.length > 0 && (
-                            <div className="text-xs text-gray-500">
-                              {section.items.length} item{section.items.length !== 1 ? 's' : ''}
-                            </div>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <div className="text-xs font-semibold text-gray-600 truncate">{section.name}</div>
+                            {(section.type === 'text' || section.name?.toLowerCase().includes('scroll') || section.name?.toLowerCase().includes('text')) && (
+                              <Type className="h-3 w-3 text-purple-500 flex-shrink-0" />
+                            )}
+                          </div>
+                          {(section.type === 'text' || section.name?.toLowerCase().includes('scroll') || section.name?.toLowerCase().includes('text')) ? (
+                            section.textConfig ? (
+                              <div className="text-xs text-green-600">
+                                Text configured
+                              </div>
+                            ) : (
+                              <div className="text-xs text-gray-400">
+                                Click to configure
+                              </div>
+                            )
+                          ) : (
+                            section.items.length > 0 && (
+                              <div className="text-xs text-gray-500">
+                                {section.items.length} item{section.items.length !== 1 ? 's' : ''}
+                              </div>
+                            )
                           )}
-                          {section.id === activeSection && section.items.length === 0 && (
+                          {section.id === activeSection && !(section.type === 'text' || section.name?.toLowerCase().includes('scroll') || section.name?.toLowerCase().includes('text')) && section.items.length === 0 && (
                             <div className="text-xs text-gray-400 text-center mt-auto mb-auto">
                               Drop Media
                             </div>
@@ -1029,38 +1141,77 @@ export default function LayoutBuilderPage() {
                 </div>
               </div>
 
-              {/* Media Drop Zone */}
+              {/* Content Area */}
               <div 
-                className="bg-white border-2 border-dashed border-gray-300 rounded-2xl p-6 min-h-[300px] max-h-[500px] overflow-y-auto overflow-x-hidden custom-scrollbar shadow-lg"
+                className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-3 min-h-[180px] shadow-md"
                 data-aos="fade-up"
                 data-aos-delay="300"
               >
-                {!currentSection || currentSection.items.length === 0 ? (
-                  <div className="flex items-center justify-center h-full text-gray-400 min-h-[200px]">
-                    <div className="text-center">
-                      <p className="text-lg font-medium mb-2">[ Drag & Drop Media Here ]</p>
-                      <p className="text-sm">Or click the + button on media items to add them</p>
+                {(currentSection?.type === 'text' || currentSection?.name?.toLowerCase().includes('scroll') || currentSection?.name?.toLowerCase().includes('text')) ? (
+                  <div className="flex flex-col items-center justify-center h-full min-h-[120px]">
+                    <div className="text-center space-y-3">
+                      <Type className="h-12 w-12 text-purple-400 mx-auto" />
+                      <div>
+                        <h3 className="text-base font-semibold text-gray-900 mb-2">Text Section</h3>
+                        <p className="text-sm text-gray-600 mb-3">Configure scrolling text for this section</p>
+                        {currentSection.textConfig ? (
+                          <div className="space-y-3">
+                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                              <p className="text-sm text-purple-800 font-medium mb-2">Current Configuration:</p>
+                              <div className="text-xs text-purple-600 space-y-1">
+                                <p><strong>Text:</strong> {currentSection.textConfig.text}</p>
+                                <p><strong>Direction:</strong> {currentSection.textConfig.direction}</p>
+                                <p><strong>Speed:</strong> {currentSection.textConfig.speed} px/sec</p>
+                              </div>
+                            </div>
+                            <Button
+                              onClick={() => openTextConfig(currentSection.id)}
+                              className="bg-purple-500 hover:bg-purple-600 text-white"
+                            >
+                              <Settings className="h-4 w-4 mr-2" />
+                              Edit Text Configuration
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            onClick={() => openTextConfig(currentSection.id)}
+                            className="bg-purple-500 hover:bg-purple-600 text-white"
+                          >
+                            <Type className="h-4 w-4 mr-2" />
+                            Configure Scrolling Text
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ) : (
-                  <SortableContext
-                    items={currentSection.items.map(item => item.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-2">
-                      {currentSection.items.map((item) => (
-                        <SortableMediaItem
-                          key={item.id}
-                          item={item}
-                          media={item.media}
-                          onOrientationChange={(itemId, orientation) => updateSectionItemField(currentSection!.id, itemId, 'orientation', orientation)}
-                          onResizeModeChange={(itemId, resizeMode) => updateSectionItemField(currentSection!.id, itemId, 'resizeMode', resizeMode)}
-                          onRotationChange={(itemId, rotation) => updateSectionItemField(currentSection!.id, itemId, 'rotation', rotation)}
-                          onRemove={(itemId) => removeItemFromSection(currentSection!.id, itemId)}
-                        />
-                      ))}
+                  !currentSection || currentSection.items.length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-gray-400 min-h-[120px]">
+                      <div className="text-center">
+                        <p className="text-sm font-medium mb-1">[ Drag & Drop Media Here ]</p>
+                        <p className="text-xs">Or click the + button on media items to add them</p>
+                      </div>
                     </div>
-                  </SortableContext>
+                  ) : (
+                    <SortableContext
+                      items={currentSection.items.map(item => item.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="space-y-2">
+                        {currentSection.items.map((item) => (
+                          <SortableMediaItem
+                            key={item.id}
+                            item={item}
+                            media={item.media}
+                            onOrientationChange={(itemId, orientation) => updateSectionItemField(currentSection!.id, itemId, 'orientation', orientation)}
+                            onResizeModeChange={(itemId, resizeMode) => updateSectionItemField(currentSection!.id, itemId, 'resizeMode', resizeMode)}
+                            onRotationChange={(itemId, rotation) => updateSectionItemField(currentSection!.id, itemId, 'rotation', rotation)}
+                            onRemove={(itemId) => removeItemFromSection(currentSection!.id, itemId)}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  )
                 )}
               </div>
             </div>
@@ -1069,8 +1220,8 @@ export default function LayoutBuilderPage() {
       </div>
 
       {/* Media Library Sidebar */}
-      <div className="w-80 border-l bg-gradient-to-b from-gray-50 to-white flex flex-col shadow-xl">
-        <div className="p-4 border-b bg-white">
+      <div className="w-80 border-l bg-gradient-to-b from-gray-50 to-white flex flex-col shadow-xl h-full">
+        <div className="p-3 border-b bg-white flex-shrink-0">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold text-gray-900 text-lg">MEDIA LIBRARY</h2>
             <Button
@@ -1122,7 +1273,7 @@ export default function LayoutBuilderPage() {
         </div>
 
         {/* Media List */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-3">
           <div className="space-y-2">
             {filteredMedia.map((media) => (
               <DraggableMediaItem
@@ -1180,6 +1331,15 @@ export default function LayoutBuilderPage() {
         open={!!addDialogMedia}
         onOpenChange={(open) => { if (!open) { setAddDialogMedia(null); setAddDialogSectionId(null); } }}
         onConfirm={handleAddToSectionConfirm}
+      />
+
+      {/* Text Configuration Dialog */}
+      <TextConfigDialog
+        open={textConfigOpen}
+        onOpenChange={setTextConfigOpen}
+        onConfirm={handleTextConfigConfirm}
+        initialConfig={textConfigSectionId ? layout?.sections.find(s => s.id === textConfigSectionId)?.textConfig : undefined}
+        sectionName={textConfigSectionId ? layout?.sections.find(s => s.id === textConfigSectionId)?.name : undefined}
       />
 
       {/* Live Layout Preview */}

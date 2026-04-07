@@ -13,6 +13,51 @@ const publicRoot = path.join(__dirname, '../../public');
 const uploadsDir = path.join(publicRoot, 'uploads');
 
 /**
+ * Get thumbnail URL for media item
+ * @param {Object} media - Media object with filename and type
+ * @returns {string|null} Thumbnail URL or null if not available
+ */
+function getThumbnailUrl(media) {
+  if (!media.filename) return null;
+  
+  const baseName = path.parse(media.filename).name;
+  
+  if (media.type === 'IMAGE') {
+    // Check if optimized thumbnail exists
+    const thumbnailPath = path.join(uploadsDir, 'thumbnails', `${baseName}_thumb.jpg`);
+    if (fs.existsSync(thumbnailPath)) {
+      return `/uploads/thumbnails/${baseName}_thumb.jpg`;
+    }
+  } else if (media.type === 'VIDEO') {
+    // Check if video thumbnail exists
+    const thumbnailPath = path.join(uploadsDir, 'thumbnails', `${baseName}_thumb.jpg`);
+    if (fs.existsSync(thumbnailPath)) {
+      return `/uploads/thumbnails/${baseName}_thumb.jpg`;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Get preview URL for media item
+ * @param {Object} media - Media object with filename and type
+ * @returns {string|null} Preview URL or null if not available
+ */
+function getPreviewUrl(media) {
+  if (!media.filename || media.type !== 'IMAGE') return null;
+  
+  const baseName = path.parse(media.filename).name;
+  const previewPath = path.join(uploadsDir, 'optimized', `${baseName}_preview.jpg`);
+  
+  if (fs.existsSync(previewPath)) {
+    return `/uploads/optimized/${baseName}_preview.jpg`;
+  }
+  
+  return null;
+}
+
+/**
  * Extract video metadata using FFprobe
  * @param {string} inputPath - Full path to input video
  * @returns {Promise<{duration: number, width: number, height: number}>}
@@ -65,6 +110,50 @@ function extractVideoMetadata(inputPath) {
     proc.on('error', (err) => {
       console.warn('FFprobe error:', err.message);
       resolve({ duration: 0, width: 0, height: 0 });
+    });
+  });
+}
+
+/**
+ * Generate video thumbnail using FFmpeg
+ * @param {string} inputPath - Full path to input video
+ * @param {string} outputPath - Full path for thumbnail output
+ * @returns {Promise<boolean>} Success status
+ */
+function generateVideoThumbnail(inputPath, outputPath) {
+  return new Promise((resolve) => {
+    const args = [
+      '-i', inputPath,
+      '-ss', '00:00:01', // Seek to 1 second
+      '-vframes', '1', // Extract 1 frame
+      '-vf', 'scale=300:300:force_original_aspect_ratio=decrease,pad=300:300:(ow-iw)/2:(oh-ih)/2:black', // Scale and pad to 300x300
+      '-q:v', '2', // High quality
+      '-y', // Overwrite output
+      outputPath
+    ];
+    
+    console.log(`🎬 Generating video thumbnail: ${inputPath} -> ${outputPath}`);
+    
+    const proc = spawn('ffmpeg', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    
+    let stderr = '';
+    proc.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(outputPath)) {
+        console.log(`✅ Video thumbnail generated: ${outputPath}`);
+        resolve(true);
+      } else {
+        console.warn(`❌ Video thumbnail generation failed: ${stderr || `Exit code ${code}`}`);
+        resolve(false);
+      }
+    });
+    
+    proc.on('error', (err) => {
+      console.warn('FFmpeg thumbnail error:', err.message);
+      resolve(false);
     });
   });
 }
@@ -251,6 +340,23 @@ if (type === 'IMAGE') {
     height = metadata.height > 0 ? metadata.height : null;
   } catch (e) {
     console.warn('⚠️ Failed to extract video metadata:', e.message);
+  }
+
+  // Generate video thumbnail
+  const baseName = path.parse(filename).name;
+  const thumbnailsDir = path.join(uploadsDir, 'thumbnails');
+  if (!fs.existsSync(thumbnailsDir)) {
+    fs.mkdirSync(thumbnailsDir, { recursive: true });
+  }
+  
+  const thumbnailPath = path.join(thumbnailsDir, `${baseName}_thumb.jpg`);
+  try {
+    const thumbnailGenerated = await generateVideoThumbnail(req.file.path, thumbnailPath);
+    if (thumbnailGenerated) {
+      console.log(`✅ Video thumbnail generated: ${baseName}_thumb.jpg`);
+    }
+  } catch (thumbnailError) {
+    console.warn('⚠️ Video thumbnail generation failed:', thumbnailError.message);
   }
 
   url = `/uploads/${filename}`;   // ✅ use filename here
@@ -478,28 +584,42 @@ exports.listMedia = catchAsync(async (req, res) => {
     fileSize: m.fileSize
   })));
 
-  // Enrich media items with file metadata (size and checksum) for offline playback
+  // Enrich media items with file metadata and thumbnail URLs
   const enrichedMedia = await Promise.all(media.map(async (item) => {
     try {
       // Extract file path from URL
       const urlPath = item.url.replace(/^\//, ''); // Remove leading slash
       const filePath = path.join(__dirname, '../../public', urlPath);
       
-      // Check if file exists
+      // Get thumbnail and preview URLs
+      const thumbnailUrl = getThumbnailUrl(item);
+      const previewUrl = getPreviewUrl(item);
+      
+      // Check if file exists and get metadata
       if (fs.existsSync(filePath)) {
         const metadata = await getFileMetadata(filePath);
         return {
           ...item,
           fileSize: metadata.fileSize,
-          checksum: metadata.checksum
+          checksum: metadata.checksum,
+          thumbnailUrl,
+          previewUrl
         };
       }
       
-      // If file doesn't exist, return item as-is
-      return item;
+      // If file doesn't exist, return item with thumbnail URLs only
+      return {
+        ...item,
+        thumbnailUrl,
+        previewUrl
+      };
     } catch (error) {
       console.error(`Error enriching media ${item.id}:`, error.message);
-      return item;
+      return {
+        ...item,
+        thumbnailUrl: getThumbnailUrl(item),
+        previewUrl: getPreviewUrl(item)
+      };
     }
   }));
 

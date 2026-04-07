@@ -112,10 +112,28 @@ export function PlaylistPlayer({
       hls.loadSource(src);
       hls.attachMedia(videoRef.current);
       
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        videoRef.current?.play().catch(err => {
-          console.error('HLS playback error:', err);
-        });
+      hls.on(Hls.Events.MANIFEST_PARSED, async () => {
+        if (videoRef.current) {
+          videoRef.current.volume = 1.0;
+          videoRef.current.muted = false;
+          
+          try {
+            await videoRef.current.play();
+          } catch (err) {
+            // If audio autoplay is blocked, try muted playback
+            if (err.name === 'NotAllowedError') {
+              console.log('Audio autoplay blocked, falling back to muted playback');
+              videoRef.current.muted = true;
+              try {
+                await videoRef.current.play();
+              } catch (mutedErr) {
+                console.error('Even muted playback failed:', mutedErr);
+              }
+            } else if (err.name !== 'AbortError') {
+              console.log('Autoplay with audio blocked by browser policy');
+            }
+          }
+        }
       });
 
       hls.on(Hls.Events.ERROR, (event, data) => {
@@ -147,14 +165,48 @@ export function PlaylistPlayer({
     } else if (isHLS && videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
       // Native HLS support (Safari)
       videoRef.current.src = src;
-      videoRef.current.play().catch(err => {
-        console.error('Native HLS playback error:', err);
+      videoRef.current.volume = 1.0;
+      videoRef.current.muted = false;
+      
+      videoRef.current.play().catch(async (err) => {
+        // If audio autoplay is blocked, try muted playback
+        if (err.name === 'NotAllowedError' && videoRef.current) {
+          console.log('Audio autoplay blocked, falling back to muted playback');
+          videoRef.current.muted = true;
+          try {
+            await videoRef.current.play();
+          } catch (mutedErr) {
+            console.error('Even muted playback failed:', mutedErr);
+          }
+        } else if (err.name !== 'AbortError') {
+          console.log('Autoplay with audio blocked by browser policy');
+        }
       });
     } else if (!isHLS) {
-      // Regular video file
+      // Regular video file - abort any previous loading
+      if (videoRef.current.src && videoRef.current.src !== src) {
+        videoRef.current.pause();
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load(); // This will abort any pending requests
+      }
+      
       videoRef.current.src = src;
-      videoRef.current.play().catch(err => {
-        console.error('Video playback error:', err);
+      videoRef.current.volume = 1.0;
+      videoRef.current.muted = false;
+      
+      videoRef.current.play().catch(async (err) => {
+        // If audio autoplay is blocked, try muted playback
+        if (err.name === 'NotAllowedError' && videoRef.current) {
+          console.log('Audio autoplay blocked, falling back to muted playback');
+          videoRef.current.muted = true;
+          try {
+            await videoRef.current.play();
+          } catch (mutedErr) {
+            console.error('Even muted playback failed:', mutedErr);
+          }
+        } else if (err.name !== 'AbortError') {
+          console.log('Autoplay with audio blocked by browser policy');
+        }
       });
     }
 
@@ -162,6 +214,13 @@ export function PlaylistPlayer({
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
+      }
+      
+      // Clean up video element to prevent abort errors
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load(); // This will abort any pending requests
       }
     };
   }, [current?.media.id, publicBaseUrl, ordered.length]);
@@ -310,7 +369,6 @@ export function PlaylistPlayer({
       className="h-full w-full bg-black"
       style={{ ...mediaStyle, pointerEvents: 'none', cursor: 'none' }}
       autoPlay
-      muted
       playsInline
       preload="auto"
       loop={!!current.loopVideo}

@@ -20,9 +20,9 @@ const calculateDisplayStatus = (display) => {
   const lastHeartbeat = new Date(display.lastHeartbeat);
   const timeDiff = (now - lastHeartbeat) / 1000; // seconds
   
-  // Consider display offline if no heartbeat for more than 60 seconds
+  // Consider display offline if no heartbeat for 60 seconds or more
   // (heartbeat interval is 30 seconds, so 60 seconds gives some buffer)
-  if (timeDiff > 60) {
+  if (timeDiff >= 60) {
     return 'OFFLINE';
   }
   
@@ -385,6 +385,13 @@ exports.getDisplays = async (req, res) => {
               name: true,
             },
           },
+          displayGroup: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
+            },
+          },
           managedByUser: {
             select: {
               id: true,
@@ -422,6 +429,13 @@ exports.getDisplays = async (req, res) => {
               name: true,
             },
           },
+          displayGroup: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
+            },
+          },
           managedByUser: {
             select: {
               id: true,
@@ -450,6 +464,13 @@ exports.getDisplays = async (req, res) => {
             select: {
               id: true,
               name: true,
+            },
+          },
+          displayGroup: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
             },
           },
         },
@@ -483,6 +504,13 @@ exports.getDisplays = async (req, res) => {
                 select: {
                   id: true,
                   name: true,
+                },
+              },
+              displayGroup: {
+                select: {
+                  id: true,
+                  name: true,
+                  color: true,
                 },
               },
             },

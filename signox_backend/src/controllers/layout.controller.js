@@ -138,8 +138,14 @@ exports.getLayoutPreview = async (req, res) => {
                   }
                 }
               }
+            },
+            scrollTexts: {
+              orderBy: { zIndex: 'asc' }
             }
           }
+        },
+        scrollTexts: {
+          orderBy: { zIndex: 'asc' }
         }
       }
     });
@@ -165,6 +171,8 @@ exports.getLayoutPreview = async (req, res) => {
         height: section.height,
         loopEnabled: section.loopEnabled,
         frequency: section.frequency,
+        type: section.sectionType === 'SCROLL_TEXT' ? 'text' : 'media',
+        textConfig: section.textConfig ? JSON.parse(section.textConfig) : null,
         items: section.items.map(item => ({
           id: item.id,
           order: item.order,
@@ -280,7 +288,17 @@ exports.getLayout = async (req, res) => {
       return res.status(403).json({ message: 'Access denied. You can only view layouts from your organization.' });
     }
 
-    res.json({ layout });
+    // Parse textConfig for sections
+    const layoutWithParsedConfig = {
+      ...layout,
+      sections: layout.sections.map(section => ({
+        ...section,
+        type: section.sectionType === 'SCROLL_TEXT' ? 'text' : 'media',
+        textConfig: section.textConfig ? JSON.parse(section.textConfig) : null
+      }))
+    };
+
+    res.json({ layout: layoutWithParsedConfig });
   } catch (error) {
     console.error('Get Layout Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -338,7 +356,9 @@ exports.createLayout = async (req, res) => {
               width: section.width || 100,
               height: section.height || 100,
               frequency: section.frequency || null,
-              loopEnabled: section.loopEnabled !== undefined ? section.loopEnabled : true
+              loopEnabled: section.loopEnabled !== undefined ? section.loopEnabled : true,
+              sectionType: section.sectionType || (section.type === 'text' ? 'SCROLL_TEXT' : 'MEDIA'),
+              textConfig: section.textConfig ? JSON.stringify(section.textConfig) : null
             }
           });
 
@@ -834,6 +854,289 @@ exports.deleteWidget = async (req, res) => {
     res.json({ message: 'Widget deleted successfully' });
   } catch (error) {
     console.error('Delete Widget Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * POST /api/layouts/:id/scroll-text
+ * Add scrolling text to a layout
+ */
+exports.addScrollText = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      text, 
+      direction, 
+      speed, 
+      fontSize, 
+      fontColor, 
+      backgroundColor, 
+      isOverlay, 
+      x, 
+      y, 
+      width, 
+      height, 
+      zIndex,
+      sectionId 
+    } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ message: 'Text is required' });
+    }
+
+    // Validate direction
+    const validDirections = ['LEFT_TO_RIGHT', 'RIGHT_TO_LEFT', 'TOP_TO_BOTTOM', 'BOTTOM_TO_TOP'];
+    const scrollDirection = validDirections.includes(direction) ? direction : 'LEFT_TO_RIGHT';
+
+    const scrollText = await prisma.scrollText.create({
+      data: {
+        layoutId: id,
+        text,
+        direction: scrollDirection,
+        speed: speed || 50,
+        fontSize: fontSize || 24,
+        fontColor: fontColor || '#FFFFFF',
+        backgroundColor: backgroundColor || null,
+        isOverlay: isOverlay || false,
+        x: x || 0,
+        y: y || 0,
+        width: width || 100,
+        height: height || 10,
+        zIndex: zIndex || 10,
+        sectionId: sectionId || null
+      }
+    });
+
+    res.status(201).json({ scrollText });
+  } catch (error) {
+    console.error('Add Scroll Text Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * PUT /api/layouts/:layoutId/scroll-text/:scrollTextId
+ * Update scrolling text
+ */
+exports.updateScrollText = async (req, res) => {
+  try {
+    const { layoutId, scrollTextId } = req.params;
+    const { 
+      text, 
+      direction, 
+      speed, 
+      fontSize, 
+      fontColor, 
+      backgroundColor, 
+      isOverlay, 
+      x, 
+      y, 
+      width, 
+      height, 
+      zIndex,
+      sectionId 
+    } = req.body;
+
+    // Verify scroll text exists and belongs to layout
+    const scrollText = await prisma.scrollText.findUnique({
+      where: { id: scrollTextId }
+    });
+
+    if (!scrollText || scrollText.layoutId !== layoutId) {
+      return res.status(404).json({ message: 'Scroll text not found' });
+    }
+
+    // Build update data object
+    const updateData = {};
+    if (text !== undefined) updateData.text = text;
+    if (direction !== undefined) {
+      const validDirections = ['LEFT_TO_RIGHT', 'RIGHT_TO_LEFT', 'TOP_TO_BOTTOM', 'BOTTOM_TO_TOP'];
+      updateData.direction = validDirections.includes(direction) ? direction : 'LEFT_TO_RIGHT';
+    }
+    if (speed !== undefined) updateData.speed = speed;
+    if (fontSize !== undefined) updateData.fontSize = fontSize;
+    if (fontColor !== undefined) updateData.fontColor = fontColor;
+    if (backgroundColor !== undefined) updateData.backgroundColor = backgroundColor;
+    if (isOverlay !== undefined) updateData.isOverlay = isOverlay;
+    if (x !== undefined) updateData.x = x;
+    if (y !== undefined) updateData.y = y;
+    if (width !== undefined) updateData.width = width;
+    if (height !== undefined) updateData.height = height;
+    if (zIndex !== undefined) updateData.zIndex = zIndex;
+    if (sectionId !== undefined) updateData.sectionId = sectionId;
+
+    const updatedScrollText = await prisma.scrollText.update({
+      where: { id: scrollTextId },
+      data: updateData
+    });
+
+    res.json({ scrollText: updatedScrollText });
+  } catch (error) {
+    console.error('Update Scroll Text Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * DELETE /api/layouts/:layoutId/scroll-text/:scrollTextId
+ * Delete scrolling text
+ */
+exports.deleteScrollText = async (req, res) => {
+  try {
+    const { layoutId, scrollTextId } = req.params;
+
+    // Verify scroll text exists and belongs to layout
+    const scrollText = await prisma.scrollText.findUnique({
+      where: { id: scrollTextId }
+    });
+
+    if (!scrollText || scrollText.layoutId !== layoutId) {
+      return res.status(404).json({ message: 'Scroll text not found' });
+    }
+
+    await prisma.scrollText.delete({
+      where: { id: scrollTextId }
+    });
+
+    res.json({ message: 'Scroll text deleted successfully' });
+  } catch (error) {
+    console.error('Delete Scroll Text Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * PUT /api/layouts/:id/sections/:sectionId/text-config
+ * Update text configuration for a section
+ */
+exports.updateSectionTextConfig = async (req, res) => {
+  try {
+    const { id, sectionId } = req.params;
+    const { text, direction, speed, fontSize, fontWeight, textColor, backgroundColor } = req.body;
+
+    // Verify section belongs to layout
+    const section = await prisma.layoutSection.findUnique({
+      where: { id: sectionId },
+      include: { layout: true }
+    });
+
+    if (!section || section.layoutId !== id) {
+      return res.status(404).json({ message: 'Section not found' });
+    }
+
+    // Convert direction format from frontend to backend
+    const directionMap = {
+      'left-to-right': 'LEFT_TO_RIGHT',
+      'right-to-left': 'RIGHT_TO_LEFT',
+      'top-to-bottom': 'TOP_TO_BOTTOM',
+      'bottom-to-top': 'BOTTOM_TO_TOP'
+    };
+
+    const scrollDirection = directionMap[direction] || 'LEFT_TO_RIGHT';
+
+    // Store text configuration as JSON in the section
+    const textConfig = {
+      text,
+      direction,
+      speed: speed || 50,
+      fontSize: fontSize || 24,
+      fontWeight: fontWeight || 'normal',
+      textColor: textColor || '#000000',
+      backgroundColor: backgroundColor || 'transparent'
+    };
+
+    const updatedSection = await prisma.layoutSection.update({
+      where: { id: sectionId },
+      data: {
+        textConfig: JSON.stringify(textConfig),
+        sectionType: 'SCROLL_TEXT'
+      }
+    });
+
+    res.json({ section: updatedSection, textConfig });
+  } catch (error) {
+    console.error('Update Section Text Config Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * GET /api/layouts/:id/scroll-texts
+ * Get all scrolling texts for a layout
+ */
+exports.getScrollTexts = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const scrollTexts = await prisma.scrollText.findMany({
+      where: { layoutId: id },
+      orderBy: { zIndex: 'asc' }
+    });
+
+    res.json({ scrollTexts });
+  } catch (error) {
+    console.error('Get Scroll Texts Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * GET /api/layouts/:id/debug
+ * Debug endpoint to check layout data
+ */
+exports.debugLayout = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const layout = await prisma.layout.findUnique({
+      where: { id },
+      include: {
+        sections: {
+          orderBy: { order: 'asc' },
+          include: {
+            items: {
+              orderBy: { order: 'asc' },
+              include: {
+                media: {
+                  select: {
+                    id: true,
+                    name: true,
+                    type: true,
+                    url: true,
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!layout) {
+      return res.status(404).json({ message: 'Layout not found' });
+    }
+
+    // Debug info
+    const debugInfo = {
+      layout: {
+        id: layout.id,
+        name: layout.name,
+        sectionsCount: layout.sections.length
+      },
+      sections: layout.sections.map(section => ({
+        id: section.id,
+        name: section.name,
+        sectionType: section.sectionType,
+        hasTextConfig: !!section.textConfig,
+        textConfig: section.textConfig ? JSON.parse(section.textConfig) : null,
+        itemsCount: section.items.length
+      }))
+    };
+
+    res.json(debugInfo);
+  } catch (error) {
+    console.error('Debug Layout Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

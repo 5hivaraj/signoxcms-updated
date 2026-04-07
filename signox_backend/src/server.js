@@ -35,6 +35,7 @@ const cacheService = require('./services/cache.service');
 const imageOptimizationService = require('./services/image-optimization.service');
 const databaseOptimizationService = require('./services/database-optimization.service');
 const licenseCheckService = require('./services/license-check.service');
+const displayStatusService = require('./services/display-status.service');
 
 // Middleware
 const { logAuthEvents, logSensitiveAccess, logSuspiciousActivity } = require('./middleware/logging.middleware');
@@ -241,6 +242,7 @@ app.use('/api/admin', logSensitiveAccess, adminRoutes);
 app.use('/api/proof-of-play', proofOfPlayRoutes);
 app.use('/api/monitoring', monitoringRoutes);
 app.use('/api/player-apps', require('./routes/playerApps.routes'));
+app.use('/api/display-groups', require('./routes/displayGroup.routes'));
 
 /* =========================
    HEALTH & ROOT
@@ -275,6 +277,7 @@ const HOST = '0.0.0.0';
 const ENABLE_HTTPS = process.env.ENABLE_HTTPS === 'true';
 
 let server;
+let displayStatusInterval;
 
 if (ENABLE_HTTPS) {
   // HTTPS Server with SSL/TLS
@@ -295,6 +298,9 @@ if (ENABLE_HTTPS) {
         licenseCheckService.start();
         databaseOptimizationService.optimizeConnectionPool();
       }
+      
+      // Start display status service in all environments
+      displayStatusInterval = displayStatusService.startDisplayStatusService();
     });
 
     // Optional: Redirect HTTP to HTTPS
@@ -322,6 +328,9 @@ if (ENABLE_HTTPS) {
       licenseCheckService.start();
       databaseOptimizationService.optimizeConnectionPool();
     }
+    
+    // Start display status service in all environments
+    displayStatusInterval = displayStatusService.startDisplayStatusService();
   });
 }
 
@@ -333,6 +342,7 @@ const shutdown = () => {
   cleanupService.stop();
   healthService.stop();
   licenseCheckService.stop();
+  displayStatusService.stopDisplayStatusService(displayStatusInterval);
   cacheService.disconnect();
   databaseOptimizationService.disconnect();
   server.close(() => process.exit(0));

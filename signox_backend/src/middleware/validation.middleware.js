@@ -10,10 +10,10 @@ const validateEmail = (email) => {
   return validator.isEmail(email) && email.length <= 254;
 };
 
-// Password validation
+// Password validation - allow any length
 const validatePassword = (password) => {
   if (!password || typeof password !== 'string') return false;
-  return password.length >= 8 && password.length <= 128;
+  return password.length >= 1 && password.length <= 128;
 };
 
 // Name validation

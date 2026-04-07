@@ -17,6 +17,7 @@ import {
   BarChart3,
   Calendar,
   Smartphone,
+  UserPlus,
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -101,6 +102,12 @@ export function Sidebar({ user }: SidebarProps) {
       staffRoles: ['DISPLAY_MANAGER', 'BROADCAST_MANAGER'],
     },
     {
+      label: 'Display Groups',
+      href: '/user/display-groups',
+      icon: Users,
+      roles: ['USER_ADMIN'],
+    },
+    {
       label: 'Media Library',
       href: '/user/media',
       icon: Image,
@@ -131,7 +138,7 @@ export function Sidebar({ user }: SidebarProps) {
     {
       label: 'Users',
       href: '/user/staff',
-      icon: Users,
+      icon: UserPlus,
       roles: ['USER_ADMIN'],
     },
     {

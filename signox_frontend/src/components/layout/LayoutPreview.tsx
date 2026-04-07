@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Play, Pause, RotateCcw } from 'lucide-react';
 import Hls from 'hls.js';
+import { ScrollingText } from '@/components/ui/scrolling-text';
 
 /* -------------------- Types -------------------- */
 type MediaType = 'IMAGE' | 'VIDEO';
@@ -34,6 +35,16 @@ type PreviewSection = {
   y: number;
   width: number;
   height: number;
+  type?: 'media' | 'text';
+  textConfig?: {
+    text: string;
+    direction: 'left-to-right' | 'right-to-left' | 'top-to-bottom' | 'bottom-to-top';
+    speed: number;
+    fontSize: number;
+    fontWeight: 'normal' | 'bold' | 'bolder' | 'lighter';
+    textColor: string;
+    backgroundColor: string;
+  };
   items: PreviewSectionItem[];
 };
 
@@ -274,6 +285,36 @@ export function LayoutPreview({
               {layout.sections.map(section => {
                 const idx = sectionStates[section.id] ?? 0;
                 const item = section.items[idx];
+                
+                // Handle text sections
+                if (section.type === 'text' && section.textConfig) {
+                  return (
+                    <div
+                      key={section.id}
+                      className="absolute overflow-hidden"
+                      style={{
+                        left: `${section.x}%`,
+                        top: `${section.y}%`,
+                        width: `${section.width}%`,
+                        height: `${section.height}%`,
+                        zIndex: section.order + 1,
+                      }}
+                    >
+                      <ScrollingText
+                        text={section.textConfig.text}
+                        direction={section.textConfig.direction}
+                        speed={section.textConfig.speed}
+                        fontSize={Math.min(section.textConfig.fontSize, 20)} // Scale down for preview
+                        fontWeight={section.textConfig.fontWeight}
+                        textColor={section.textConfig.textColor}
+                        backgroundColor={section.textConfig.backgroundColor}
+                        className="w-full h-full"
+                      />
+                    </div>
+                  );
+                }
+                
+                // Handle media sections
                 if (!item) return null;
 
                 return (
@@ -285,6 +326,7 @@ export function LayoutPreview({
                       top: `${section.y}%`,
                       width: `${section.width}%`,
                       height: `${section.height}%`,
+                      zIndex: section.order + 1, // Ensure proper layering for overlays
                     }}
                   >
                     {item.media.type === 'IMAGE' ? (

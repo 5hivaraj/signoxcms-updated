@@ -45,6 +45,14 @@ enum WidgetType {
   WEB
   MEDIA
   TEXT
+  SCROLL_TEXT
+}
+
+enum ScrollDirection {
+  LEFT_TO_RIGHT
+  RIGHT_TO_LEFT
+  TOP_TO_BOTTOM
+  BOTTOM_TO_TOP
 }
 
 enum Orientation {
@@ -106,11 +114,15 @@ model User {
   // Client Admin owns displays (for analytics)
   clientDisplays Display[] @relation("ClientAdminDisplays")
 
+  // Client Admin owns display groups (for analytics)
+  clientDisplayGroups DisplayGroup[] @relation("ClientAdminDisplayGroups")
+
   // Media and content ownership
   createdMedia     Media[]
   createdPlaylists Playlist[]
   createdLayouts   Layout[]
   createdSchedules Schedule[]
+  createdDisplayGroups DisplayGroup[]
 }
 
 model ClientProfile {
@@ -193,8 +205,38 @@ model Display {
   clientAdminId String? @db.ObjectId
   clientAdmin   User?   @relation("ClientAdminDisplays", fields: [clientAdminId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  // Display Group assignment
+  displayGroupId String?      @db.ObjectId
+  displayGroup   DisplayGroup? @relation(fields: [displayGroupId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
   // Scheduling
   schedules ScheduleDisplay[]
+}
+
+// ============================================
+// DISPLAY GROUP MODEL
+// ============================================
+
+model DisplayGroup {
+  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  color       String? // Hex color for UI identification
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  createdById String? @db.ObjectId
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // Client Admin tracking (for multi-tenant isolation)
+  clientAdminId String? @db.ObjectId
+  clientAdmin   User?   @relation("ClientAdminDisplayGroups", fields: [clientAdminId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // Displays in this group
+  displays Display[]
 }
 
 // ============================================
@@ -309,6 +351,7 @@ model Layout {
   layoutZones    LayoutZone[] // Template-based layout zones
   activeDisplays Display[]       @relation("ActiveLayout")
   schedules      Schedule[]
+  scrollTexts    ScrollText[]
 }
 
 model LayoutSection {
@@ -323,6 +366,12 @@ model LayoutSection {
   // Playback settings
   frequency   Int? // Times per hour
   loopEnabled Boolean @default(true)
+  
+  // Section type
+  sectionType SectionType @default(MEDIA)
+  
+  // Text configuration for text sections (stored as JSON)
+  textConfig String? // JSON string containing text, direction, speed, fontSize, etc.
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -332,8 +381,14 @@ model LayoutSection {
   layout   Layout @relation(fields: [layoutId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   items LayoutSectionItem[]
+  scrollTexts ScrollText[]
 
   @@index([layoutId, order])
+}
+
+enum SectionType {
+  MEDIA
+  SCROLL_TEXT
 }
 
 model LayoutSectionItem {
@@ -431,6 +486,43 @@ model LayoutZone {
   playlist   Playlist? @relation("LayoutZonePlaylist", fields: [playlistId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([layoutId, zoneIndex])
+}
+
+// ============================================
+// SCROLLING TEXT MODEL
+// ============================================
+
+model ScrollText {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  text            String          // The text to display
+  direction       ScrollDirection @default(LEFT_TO_RIGHT)
+  speed           Int             @default(50) // Pixels per second
+  fontSize        Int             @default(24) // Font size in pixels
+  fontColor       String          @default("#FFFFFF") // Text color
+  backgroundColor String?         // Background color (optional)
+  
+  // Position and size (percentage)
+  x      Float @default(0)
+  y      Float @default(0)
+  width  Float @default(100)
+  height Float @default(10)
+  zIndex Int   @default(10)
+  
+  // Overlay or section-based
+  isOverlay Boolean @default(false)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  layoutId  String         @db.ObjectId
+  layout    Layout         @relation(fields: [layoutId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  
+  sectionId String?        @db.ObjectId
+  section   LayoutSection? @relation(fields: [sectionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  
+  @@index([layoutId])
+  @@index([sectionId])
 }
 
 // ============================================

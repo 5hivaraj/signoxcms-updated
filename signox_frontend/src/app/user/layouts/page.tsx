@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, Trash2, Pencil, Layout, Monitor, Eye, Layers } from 'lucide-react';
 import { LayoutTemplateSelector, LayoutTemplate, LAYOUT_TEMPLATES } from '@/components/layout/LayoutTemplateSelector';
 import { AdvancedLayoutEditor } from '@/components/layout/AdvancedLayoutEditor';
+import { CustomLayoutEditor } from '@/components/layout/CustomLayoutEditor';
 import { LayoutPreview } from '@/components/layout/LayoutPreview';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
@@ -66,6 +67,7 @@ export default function LayoutsPage() {
   const [deleting, setDeleting] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLayoutId, setPreviewLayoutId] = useState<string | null>(null);
+  const [customEditorOpen, setCustomEditorOpen] = useState(false);
 
   const access = useMemo(() => {
     if (!user) return { canRead: false, canWrite: false };
@@ -118,6 +120,52 @@ export default function LayoutsPage() {
       ...template,
       name: layoutName,
     });
+  }
+
+  async function handleCustomLayoutSave(layoutData: {
+    name: string;
+    width: number;
+    height: number;
+    orientation: 'LANDSCAPE' | 'PORTRAIT';
+    sections: any[];
+  }) {
+    if (!access.canWrite) return;
+    setError('');
+    try {
+      setCreating(true);
+      
+      // Create sections from custom layout data
+      const sections = layoutData.sections.map((section, index) => ({
+        name: section.name,
+        order: section.order, // Use the order from the custom editor
+        x: section.x,
+        y: section.y,
+        width: section.width,
+        height: section.height,
+        sectionType: section.type === 'text' ? 'SCROLL_TEXT' : 'MEDIA',
+        items: [], // Empty sections, user will add media later
+      }));
+
+      console.log('Creating custom layout with sections:', sections);
+
+      const res = await api.post('/layouts', {
+        name: layoutData.name,
+        description: `Custom layout with ${sections.length} sections`,
+        width: layoutData.width,
+        height: layoutData.height,
+        orientation: layoutData.orientation,
+        sections: sections,
+      });
+      
+      const layoutId = res.data?.layout?.id;
+      setCustomEditorOpen(false);
+      await fetchLayouts();
+      if (layoutId) router.push(`/user/layouts/${layoutId}`);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Failed to create custom layout');
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function createLayoutFromTemplate(template: LayoutTemplate) {
@@ -279,7 +327,7 @@ export default function LayoutsPage() {
                 </div>
               </div>
               {access.canWrite && (
-                <div className="flex gap-2">
+                <div className="flex gap-3">
                   {selectedIds.size > 0 && (
                     <Button
                       variant="destructive"
@@ -302,6 +350,14 @@ export default function LayoutsPage() {
                     <Plus className="h-4 w-4 mr-2" />
                     Create Layout
                   </Button>
+                  <Button
+                    onClick={() => setCustomEditorOpen(true)}
+                    variant="outline"
+                    className="h-12 border-2 border-purple-300 text-purple-700 hover:bg-purple-50 font-semibold"
+                  >
+                    <Layers className="h-4 w-4 mr-2" />
+                    Create Custom Layout
+                  </Button>
                 </div>
               )}
             </div>
@@ -318,6 +374,12 @@ export default function LayoutsPage() {
           open={advancedEditorOpen}
           onOpenChange={setAdvancedEditorOpen}
           onNext={handleAdvancedEditorNext}
+        />
+        
+        <CustomLayoutEditor
+          open={customEditorOpen}
+          onOpenChange={setCustomEditorOpen}
+          onSave={handleCustomLayoutSave}
         />
         
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -415,10 +477,20 @@ export default function LayoutsPage() {
                 : 'No layouts have been created yet'}
             </p>
             {access.canWrite && (
-              <Button onClick={() => setTemplateSelectorOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Layout
-              </Button>
+              <div className="flex gap-2 justify-center">
+                <Button onClick={() => setTemplateSelectorOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Layout
+                </Button>
+                <Button 
+                  onClick={() => setCustomEditorOpen(true)}
+                  variant="outline"
+                  className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                >
+                  <Layers className="h-4 w-4 mr-2" />
+                  Create Custom Layout
+                </Button>
+              </div>
             )}
             <LayoutTemplateSelector
               open={templateSelectorOpen}
@@ -429,6 +501,11 @@ export default function LayoutsPage() {
               open={advancedEditorOpen}
               onOpenChange={setAdvancedEditorOpen}
               onNext={handleAdvancedEditorNext}
+            />
+            <CustomLayoutEditor
+              open={customEditorOpen}
+              onOpenChange={setCustomEditorOpen}
+              onSave={handleCustomLayoutSave}
             />
           </div>
         ) : (

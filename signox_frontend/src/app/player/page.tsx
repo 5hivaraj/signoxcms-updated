@@ -324,6 +324,18 @@ export default function PlayerPage() {
       setPlaylist(newPlaylist);
       setLayout(newLayout);
       setIsPaused(newIsPaused);
+
+      // Debug logging for layout sections
+      if (newLayout && newLayout.sections) {
+        console.log('[DEBUG] Layout received:', newLayout.name);
+        newLayout.sections.forEach(section => {
+          console.log(`[DEBUG] Section: ${section.name}`, {
+            type: section.type,
+            hasTextConfig: !!section.textConfig,
+            textConfig: section.textConfig
+          });
+        });
+      }
     } catch (err) {
       // ignore transient errors; next poll will retry
     }
@@ -449,14 +461,15 @@ export default function PlayerPage() {
 
     // Render layout if assigned (layouts take priority)
     if (layout && layout.sections && layout.sections.length > 0) {
-      // Check if any section has valid media items
-      const sectionsWithMedia = layout.sections.filter(section => 
-        section.items && section.items.length > 0 && section.items.some(item => item.media !== null && item.media !== undefined)
+      // Check if any section has valid media items OR is a text section
+      const sectionsWithContent = layout.sections.filter(section => 
+        (section.type === 'text' && section.textConfig) || // Text sections with config
+        (section.items && section.items.length > 0 && section.items.some(item => item.media !== null && item.media !== undefined)) // Media sections with items
       );
       
-      if (sectionsWithMedia.length > 0) {
+      if (sectionsWithContent.length > 0) {
         return (
-          <LayoutPlayer layout={layout} publicBaseUrl={PUBLIC_BASE_URL} isPaused={isPaused} />
+          <LayoutPlayer layout={layout} publicBaseUrl={PUBLIC_BASE_URL} />
         );
       }
     }

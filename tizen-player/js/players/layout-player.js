@@ -7,6 +7,7 @@ const LayoutPlayer = {
     container: null,
     layout: null,
     sections: [],
+    scrollTexts: [],
     isPlaying: false,
 
     init() {
@@ -43,6 +44,13 @@ const LayoutPlayer = {
                 Logger.warn('LayoutPlayer', 'No sections in layout');
             }
 
+            // Create layout-wide scrolling texts
+            if (layout.scrollTexts && layout.scrollTexts.length > 0) {
+                for (const scrollText of layout.scrollTexts) {
+                    this.createScrollText(scrollText, this.container, layout.width, layout.height);
+                }
+            }
+
         } catch (error) {
             Logger.error('LayoutPlayer', 'Play error:', error);
         }
@@ -63,7 +71,15 @@ const LayoutPlayer = {
             sectionDiv.style.height = `${section.height}%`;
             sectionDiv.style.overflow = 'hidden';
 
-            // Create media elements for this section
+            // Check if this is a text section
+            if (section.type === 'text' && section.textConfig) {
+                Logger.debug('LayoutPlayer', `Creating text section: ${section.name}`);
+                this.createTextSection(sectionDiv, section.textConfig);
+                this.container.appendChild(sectionDiv);
+                return;
+            }
+
+            // Create media elements for media sections
             const img = document.createElement('img');
             img.className = 'section-image';
             img.style.width = '100%';
@@ -111,6 +127,115 @@ const LayoutPlayer = {
         } catch (error) {
             Logger.error('LayoutPlayer', `Error creating section ${section.name}:`, error);
         }
+    },
+
+    createTextSection(container, textConfig) {
+        try {
+            Logger.debug('LayoutPlayer', `Creating scrolling text: ${textConfig.text}`);
+
+            // Set background color if specified
+            if (textConfig.backgroundColor && textConfig.backgroundColor !== 'transparent') {
+                container.style.backgroundColor = textConfig.backgroundColor;
+            }
+
+            // Create text element
+            const textElement = document.createElement('div');
+            textElement.className = 'scrolling-text';
+            textElement.textContent = textConfig.text;
+            textElement.style.position = 'absolute';
+            textElement.style.fontSize = `${textConfig.fontSize}px`;
+            textElement.style.fontWeight = textConfig.fontWeight || 'normal';
+            textElement.style.color = textConfig.textColor;
+            textElement.style.fontFamily = 'Arial, sans-serif';
+            textElement.style.whiteSpace = 'nowrap';
+            textElement.style.zIndex = '10';
+
+            // Position text based on direction
+            const direction = textConfig.direction;
+            if (direction === 'left-to-right' || direction === 'right-to-left') {
+                textElement.style.top = '50%';
+                textElement.style.transform = 'translateY(-50%)';
+            } else {
+                textElement.style.left = '50%';
+                textElement.style.transform = 'translateX(-50%)';
+            }
+
+            container.appendChild(textElement);
+
+            // Start animation after measuring text
+            setTimeout(() => {
+                this.animateTextSection(textElement, textConfig, container);
+            }, 100);
+
+        } catch (error) {
+            Logger.error('LayoutPlayer', `Error creating text section:`, error);
+        }
+    },
+
+    animateTextSection(textElement, config, container) {
+        const containerRect = container.getBoundingClientRect();
+        const textRect = textElement.getBoundingClientRect();
+        
+        let startPosition, endPosition, duration;
+        const speed = config.speed || 50; // pixels per second
+
+        switch (config.direction) {
+            case 'left-to-right':
+                startPosition = -textRect.width;
+                endPosition = containerRect.width;
+                duration = ((textRect.width + containerRect.width) / speed) * 1000;
+                break;
+            case 'right-to-left':
+                startPosition = containerRect.width;
+                endPosition = -textRect.width;
+                duration = ((textRect.width + containerRect.width) / speed) * 1000;
+                break;
+            case 'top-to-bottom':
+                startPosition = -textRect.height;
+                endPosition = containerRect.height;
+                duration = ((textRect.height + containerRect.height) / speed) * 1000;
+                break;
+            case 'bottom-to-top':
+                startPosition = containerRect.height;
+                endPosition = -textRect.height;
+                duration = ((textRect.height + containerRect.height) / speed) * 1000;
+                break;
+            default:
+                startPosition = -textRect.width;
+                endPosition = containerRect.width;
+                duration = ((textRect.width + containerRect.width) / speed) * 1000;
+        }
+
+        const animate = () => {
+            if (!this.isPlaying) return;
+
+            const startTime = Date.now();
+            
+            const step = () => {
+                if (!this.isPlaying) return;
+
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const currentPosition = startPosition + (endPosition - startPosition) * progress;
+
+                if (config.direction === 'left-to-right' || config.direction === 'right-to-left') {
+                    textElement.style.left = `${currentPosition}px`;
+                } else {
+                    textElement.style.top = `${currentPosition}px`;
+                }
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    // Reset and repeat animation
+                    setTimeout(() => animate(), 100);
+                }
+            };
+
+            requestAnimationFrame(step);
+        };
+
+        animate();
     },
 
     async playSection(sectionData) {
@@ -495,6 +620,166 @@ const LayoutPlayer = {
             }
         } catch (error) {
             Logger.error('LayoutPlayer', `Background caching error for ${mediaPath}:`, error);
+        }
+    },
+
+    createScrollText(scrollText, container, containerWidth, containerHeight) {
+        try {
+            Logger.debug('LayoutPlayer', `Creating scroll text: ${scrollText.text}`);
+
+            // Calculate actual dimensions
+            const actualWidth = (scrollText.width / 100) * containerWidth;
+            const actualHeight = (scrollText.height / 100) * containerHeight;
+            const actualX = (scrollText.x / 100) * containerWidth;
+            const actualY = (scrollText.y / 100) * containerHeight;
+
+            // Create scroll text container
+            const scrollContainer = document.createElement('div');
+            scrollContainer.id = `scroll-text-${scrollText.id}`;
+            scrollContainer.className = 'scroll-text-container';
+            scrollContainer.style.position = 'absolute';
+            scrollContainer.style.left = `${actualX}px`;
+            scrollContainer.style.top = `${actualY}px`;
+            scrollContainer.style.width = `${actualWidth}px`;
+            scrollContainer.style.height = `${actualHeight}px`;
+            scrollContainer.style.zIndex = scrollText.zIndex || 10;
+            scrollContainer.style.overflow = 'hidden';
+            scrollContainer.style.pointerEvents = 'none';
+            
+            if (scrollText.backgroundColor) {
+                scrollContainer.style.backgroundColor = scrollText.backgroundColor;
+            }
+
+            // Create text element
+            const textElement = document.createElement('div');
+            textElement.className = 'scroll-text';
+            textElement.textContent = scrollText.text;
+            textElement.style.position = 'absolute';
+            textElement.style.fontSize = `${scrollText.fontSize}px`;
+            textElement.style.color = scrollText.fontColor;
+            textElement.style.fontFamily = 'Arial, sans-serif';
+            textElement.style.fontWeight = 'bold';
+            textElement.style.textShadow = '2px 2px 4px rgba(0,0,0,0.5)';
+            textElement.style.whiteSpace = 'nowrap';
+
+            // Position text based on direction
+            if (scrollText.direction === 'LEFT_TO_RIGHT' || scrollText.direction === 'RIGHT_TO_LEFT') {
+                textElement.style.top = '50%';
+                textElement.style.transform = 'translateY(-50%)';
+            } else {
+                textElement.style.left = '50%';
+                textElement.style.transform = 'translateX(-50%)';
+            }
+
+            scrollContainer.appendChild(textElement);
+            container.appendChild(scrollContainer);
+
+            // Start animation after measuring text
+            setTimeout(() => {
+                this.animateScrollText(textElement, scrollText, actualWidth, actualHeight);
+            }, 100);
+
+            // Store scroll text data
+            this.scrollTexts.push({
+                id: scrollText.id,
+                element: scrollContainer,
+                textElement: textElement,
+                config: scrollText,
+                containerWidth: actualWidth,
+                containerHeight: actualHeight
+            });
+
+        } catch (error) {
+            Logger.error('LayoutPlayer', `Error creating scroll text ${scrollText.id}:`, error);
+        }
+    },
+
+    animateScrollText(textElement, config, containerWidth, containerHeight) {
+        const textRect = textElement.getBoundingClientRect();
+        const textWidth = textRect.width;
+        const textHeight = textRect.height;
+
+        let startPosition, endPosition, duration;
+
+        switch (config.direction) {
+            case 'LEFT_TO_RIGHT':
+                startPosition = -textWidth;
+                endPosition = containerWidth;
+                duration = ((textWidth + containerWidth) / config.speed) * 1000;
+                break;
+            case 'RIGHT_TO_LEFT':
+                startPosition = containerWidth;
+                endPosition = -textWidth;
+                duration = ((textWidth + containerWidth) / config.speed) * 1000;
+                break;
+            case 'TOP_TO_BOTTOM':
+                startPosition = -textHeight;
+                endPosition = containerHeight;
+                duration = ((textHeight + containerHeight) / config.speed) * 1000;
+                break;
+            case 'BOTTOM_TO_TOP':
+                startPosition = containerHeight;
+                endPosition = -textHeight;
+                duration = ((textHeight + containerHeight) / config.speed) * 1000;
+                break;
+            default:
+                startPosition = -textWidth;
+                endPosition = containerWidth;
+                duration = ((textWidth + containerWidth) / config.speed) * 1000;
+        }
+
+        const animate = () => {
+            if (!this.isPlaying) return;
+
+            const startTime = Date.now();
+            
+            const step = () => {
+                if (!this.isPlaying) return;
+
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const currentPosition = startPosition + (endPosition - startPosition) * progress;
+
+                if (config.direction === 'LEFT_TO_RIGHT' || config.direction === 'RIGHT_TO_LEFT') {
+                    textElement.style.left = `${currentPosition}px`;
+                } else {
+                    textElement.style.top = `${currentPosition}px`;
+                }
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    // Reset and repeat animation
+                    setTimeout(() => animate(), 100);
+                }
+            };
+
+            requestAnimationFrame(step);
+        };
+
+        animate();
+    },
+
+    stop() {
+        Logger.info('LayoutPlayer', 'Stopping layout player');
+        this.isPlaying = false;
+        
+        // Stop all sections
+        this.sections.forEach(section => {
+            section.isPlaying = false;
+            if (section.videoElement) {
+                section.videoElement.pause();
+                section.videoElement.src = '';
+            }
+        });
+        
+        // Clear sections and scroll texts
+        this.sections = [];
+        this.scrollTexts = [];
+        
+        // Clear container
+        if (this.container) {
+            this.container.innerHTML = '';
         }
     }
 };

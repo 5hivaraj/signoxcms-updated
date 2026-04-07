@@ -388,7 +388,7 @@ async function formatLayoutResponse(layout) {
         })
     );
 
-    return {
+    const sectionData = {
       id: section.id,
       name: section.name,
       order: section.order,
@@ -398,8 +398,21 @@ async function formatLayoutResponse(layout) {
       height: section.height,
       loopEnabled: section.loopEnabled,
       frequency: section.frequency,
+      type: section.sectionType === 'SCROLL_TEXT' ? 'text' : 'media',
+      hasTextConfig: !!section.textConfig,
+      textConfig: section.textConfig ? JSON.parse(section.textConfig) : null,
       items: enrichedItems,
     };
+
+    // Debug logging for all sections
+    console.log(`[DEBUG] Section: ${section.name}`, {
+      sectionType: section.sectionType,
+      mappedType: section.sectionType === 'SCROLL_TEXT' ? 'text' : 'media',
+      hasTextConfig: !!section.textConfig,
+      textConfig: section.textConfig ? JSON.parse(section.textConfig) : null
+    });
+
+    return sectionData;
   }));
 
   return {
