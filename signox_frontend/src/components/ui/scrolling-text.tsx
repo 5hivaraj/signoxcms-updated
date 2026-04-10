@@ -36,6 +36,10 @@ export function ScrollingText({
 
     const container = containerRef.current;
     const textElement = textRef.current;
+
+    const rawSpeed = Number(speed);
+    const pxPerSec =
+      Number.isFinite(rawSpeed) && rawSpeed > 0 ? Math.max(rawSpeed, 5) : 50;
     
     // Cancel any existing animation
     if (animationRef.current) {
@@ -47,129 +51,71 @@ export function ScrollingText({
     textElement.offsetHeight;
 
     const containerRect = container.getBoundingClientRect();
+    const isVertical = direction === 'top-to-bottom' || direction === 'bottom-to-top';
+    const displayText = isVertical ? text.split('').join('\n') : text;
+    textElement.textContent = displayText;
     const textRect = textElement.getBoundingClientRect();
 
-    console.log(`ScrollingText Setup:`, {
-      direction,
-      container: { width: containerRect.width, height: containerRect.height },
-      text: { width: textRect.width, height: textRect.height }
-    });
+    let startTime: number | null = null;
+    let startPos: { x: number; y: number };
+    let endPos: { x: number; y: number };
+    let distance: number;
 
-    // Check if this is a vertical direction that needs letter-by-letter scrolling
-    const isVerticalLetterByLetter = direction === 'top-to-bottom' || direction === 'bottom-to-top';
-
-    if (isVerticalLetterByLetter) {
-      // Letter-by-letter scrolling for vertical directions
-      let currentIndex = 0;
-      let startTime: number | null = null;
-      const letterDuration = 1000 / speed * 20; // Adjust timing for letter-by-letter
-
-      const animateLetterByLetter = (currentTime: number) => {
-        if (!startTime) startTime = currentTime;
-        
-        const elapsed = currentTime - startTime;
-        
-        if (elapsed >= letterDuration) {
-          currentIndex++;
-          startTime = currentTime;
-          
-          if (currentIndex <= text.length) {
-            const visibleText = direction === 'top-to-bottom' 
-              ? text.slice(0, currentIndex)
-              : text.slice(-currentIndex);
-            textElement.textContent = visibleText;
-          } else {
-            // Animation complete, restart after a brief pause
-            setTimeout(() => {
-              currentIndex = 0;
-              textElement.textContent = '';
-              startTime = null;
-              animationRef.current = requestAnimationFrame(animateLetterByLetter);
-            }, 1000);
-            return;
-          }
-        }
-        
-        animationRef.current = requestAnimationFrame(animateLetterByLetter);
-      };
-
-      // Position text in center for vertical letter-by-letter
-      textElement.style.position = 'absolute';
-      textElement.style.left = '50%';
-      textElement.style.top = '50%';
-      textElement.style.transform = 'translate(-50%, -50%)';
-      textElement.style.textAlign = 'center';
-      textElement.textContent = '';
-      
-      animationRef.current = requestAnimationFrame(animateLetterByLetter);
-    } else {
-      // Original scrolling behavior for horizontal directions
-      let startTime: number | null = null;
-      let startPos: { x: number; y: number };
-      let endPos: { x: number; y: number };
-      let distance: number;
-
-      // Calculate start and end positions based on direction
-      switch (direction) {
-        case 'left-to-right':
-          startPos = { x: -textRect.width, y: (containerRect.height - textRect.height) / 2 };
-          endPos = { x: containerRect.width, y: startPos.y };
-          distance = containerRect.width + textRect.width;
-          break;
-        case 'right-to-left':
-          startPos = { x: containerRect.width, y: (containerRect.height - textRect.height) / 2 };
-          endPos = { x: -textRect.width, y: startPos.y };
-          distance = containerRect.width + textRect.width;
-          break;
-        default:
-          startPos = { x: -textRect.width, y: (containerRect.height - textRect.height) / 2 };
-          endPos = { x: containerRect.width, y: startPos.y };
-          distance = containerRect.width + textRect.width;
-      }
-
-      const duration = (distance / speed) * 1000; // Convert to milliseconds
-
-      console.log(`Animation Config:`, {
-        startPos,
-        endPos,
-        distance,
-        duration: duration / 1000 + 's'
-      });
-
-      const animate = (currentTime: number) => {
-        if (!startTime) startTime = currentTime;
-        
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        
-        // Calculate current position
-        const currentX = startPos.x + (endPos.x - startPos.x) * progress;
-        const currentY = startPos.y + (endPos.y - startPos.y) * progress;
-        
-        // Update position
-        textElement.style.left = `${currentX}px`;
-        textElement.style.top = `${currentY}px`;
-        
-        if (progress < 1) {
-          animationRef.current = requestAnimationFrame(animate);
-        } else {
-          // Animation complete, restart after a brief pause
-          setTimeout(() => {
-            startTime = null;
-            animationRef.current = requestAnimationFrame(animate);
-          }, 500);
-        }
-      };
-
-      // Set initial position and start animation
-      textElement.style.position = 'absolute';
-      textElement.style.left = `${startPos.x}px`;
-      textElement.style.top = `${startPos.y}px`;
-      textElement.style.transform = 'none';
-      textElement.style.textAlign = 'left';
-      textElement.textContent = text;
-      animationRef.current = requestAnimationFrame(animate);
+    switch (direction) {
+      case 'left-to-right':
+        startPos = { x: -textRect.width, y: (containerRect.height - textRect.height) / 2 };
+        endPos = { x: containerRect.width, y: startPos.y };
+        distance = containerRect.width + textRect.width;
+        break;
+      case 'right-to-left':
+        startPos = { x: containerRect.width, y: (containerRect.height - textRect.height) / 2 };
+        endPos = { x: -textRect.width, y: startPos.y };
+        distance = containerRect.width + textRect.width;
+        break;
+      case 'top-to-bottom':
+        startPos = { x: (containerRect.width - textRect.width) / 2, y: -textRect.height };
+        endPos = { x: startPos.x, y: containerRect.height };
+        distance = containerRect.height + textRect.height;
+        break;
+      case 'bottom-to-top':
+        startPos = { x: (containerRect.width - textRect.width) / 2, y: containerRect.height };
+        endPos = { x: startPos.x, y: -textRect.height };
+        distance = containerRect.height + textRect.height;
+        break;
+      default:
+        startPos = { x: containerRect.width, y: (containerRect.height - textRect.height) / 2 };
+        endPos = { x: -textRect.width, y: startPos.y };
+        distance = containerRect.width + textRect.width;
+        break;
     }
+
+    const duration = (distance / pxPerSec) * 1000; // Convert to milliseconds
+
+    const animate = (currentTime: number) => {
+      if (!startTime) startTime = currentTime;
+      
+      // Continuous loop (train-like) without pause/jump artifacts.
+      const elapsed = currentTime - startTime;
+      const progress = (elapsed % duration) / duration;
+      
+      // Calculate current position
+      const currentX = startPos.x + (endPos.x - startPos.x) * progress;
+      const currentY = startPos.y + (endPos.y - startPos.y) * progress;
+      
+      // Update position
+      textElement.style.left = `${currentX}px`;
+      textElement.style.top = `${currentY}px`;
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    // Set initial position and start animation
+    textElement.style.position = 'absolute';
+    textElement.style.left = `${startPos.x}px`;
+    textElement.style.top = `${startPos.y}px`;
+    textElement.style.transform = 'none';
+    textElement.style.textAlign = direction === 'top-to-bottom' || direction === 'bottom-to-top' ? 'center' : 'left';
+    textElement.textContent = displayText;
+    animationRef.current = requestAnimationFrame(animate);
 
     // Cleanup function
     return () => {
@@ -177,7 +123,7 @@ export function ScrollingText({
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [text, direction, speed]);
+  }, [text, direction, speed, fontSize, fontWeight]);
 
   if (!text) {
     return (
@@ -200,12 +146,15 @@ export function ScrollingText({
     >
       <div
         ref={textRef}
-        className="absolute whitespace-nowrap"
+        className="absolute"
         style={{
           fontSize: `${fontSize}px`,
           fontWeight,
           color: textColor,
           pointerEvents: 'none',
+          whiteSpace: direction === 'top-to-bottom' || direction === 'bottom-to-top' ? 'pre' : 'nowrap',
+          lineHeight: direction === 'top-to-bottom' || direction === 'bottom-to-top' ? '1' : 'normal',
+          textAlign: direction === 'top-to-bottom' || direction === 'bottom-to-top' ? 'center' : 'left',
         }}
       >
         {text}

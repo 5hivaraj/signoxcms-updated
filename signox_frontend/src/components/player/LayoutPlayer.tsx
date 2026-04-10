@@ -138,9 +138,13 @@ export function LayoutPlayer({
             const sectionState = prev[section.id];
             if (!sectionState) return prev;
 
-            const nextIdx = section.loopEnabled
-              ? (sectionState.currentIdx + 1) % section.items.length
-              : Math.min(sectionState.currentIdx + 1, section.items.length - 1);
+            // Keep single-item sections continuously active.
+            const nextIdx =
+              section.items.length <= 1
+                ? 0
+                : section.loopEnabled
+                ? (sectionState.currentIdx + 1) % section.items.length
+                : Math.min(sectionState.currentIdx + 1, section.items.length - 1);
 
             return {
               ...prev,
@@ -184,9 +188,13 @@ export function LayoutPlayer({
       const section = layoutRef.current.sections.find(s => s.id === sectionId);
       if (!section || !section.items || section.items.length === 0) return prev;
 
-      const nextIdx = section.loopEnabled
-        ? (sectionState.currentIdx + 1) % section.items.length
-        : Math.min(sectionState.currentIdx + 1, section.items.length - 1);
+      // Keep single-item sections continuously active.
+      const nextIdx =
+        section.items.length <= 1
+          ? 0
+          : section.loopEnabled
+          ? (sectionState.currentIdx + 1) % section.items.length
+          : Math.min(sectionState.currentIdx + 1, section.items.length - 1);
 
       return {
         ...prev,
@@ -417,7 +425,7 @@ export function LayoutPlayer({
           controls={false}
           disablePictureInPicture
           disableRemotePlayback
-          loop={section.loopEnabled && section.items.length === 1}
+          loop={section.items.length === 1}
           onEnded={() => handleVideoEnd(section.id)}
           onError={(e) => {
             console.warn('Video error (will retry):', currentItem.media?.url, e.currentTarget.error);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Play, Pause, RotateCcw } from 'lucide-react';
@@ -84,6 +84,8 @@ export function LayoutPreview({
   const videoRefs = useRef<Record<string, HTMLVideoElement>>({});
   const hlsRefs = useRef<Record<string, Hls>>({});
   const imageTimers = useRef<Record<string, number>>({});
+  const previewStageRef = useRef<HTMLDivElement>(null);
+  const [previewStageWidth, setPreviewStageWidth] = useState(0);
 
   /* -------------------- Fetch Layout -------------------- */
   const fetchLayout = useCallback(async () => {
@@ -118,6 +120,19 @@ export function LayoutPreview({
   useEffect(() => {
     if (open && layoutId) fetchLayout();
   }, [open, layoutId, fetchLayout]);
+
+  useLayoutEffect(() => {
+    if (!open || !layout || !previewStageRef.current) return;
+    setPreviewStageWidth(previewStageRef.current.getBoundingClientRect().width);
+  }, [open, layout]);
+
+  useEffect(() => {
+    if (!open || !layout || !previewStageRef.current) return;
+    const el = previewStageRef.current;
+    const ro = new ResizeObserver(() => setPreviewStageWidth(el.getBoundingClientRect().width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, layout]);
 
   /* -------------------- Cleanup -------------------- */
   useEffect(() => {
@@ -252,6 +267,9 @@ export function LayoutPreview({
   /* -------------------- Render -------------------- */
   if (!open) return null;
 
+  const layoutStageScale =
+    layout && previewStageWidth > 0 ? previewStageWidth / layout.width : 1;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-6xl h-[90vh] p-0">
@@ -279,7 +297,8 @@ export function LayoutPreview({
 
           {layout && (
             <div
-              className="relative mx-auto bg-black overflow-hidden"
+              ref={previewStageRef}
+              className="relative mx-auto bg-black overflow-hidden w-full max-w-5xl"
               style={{ aspectRatio: `${layout.width}/${layout.height}` }}
             >
               {layout.sections.map(section => {
@@ -304,7 +323,7 @@ export function LayoutPreview({
                         text={section.textConfig.text}
                         direction={section.textConfig.direction}
                         speed={section.textConfig.speed}
-                        fontSize={Math.min(section.textConfig.fontSize, 20)} // Scale down for preview
+                        fontSize={Math.max(8, section.textConfig.fontSize * layoutStageScale)}
                         fontWeight={section.textConfig.fontWeight}
                         textColor={section.textConfig.textColor}
                         backgroundColor={section.textConfig.backgroundColor}

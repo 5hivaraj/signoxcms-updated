@@ -18,6 +18,7 @@ import {
   Calendar,
   Smartphone,
   UserPlus,
+  KeyRound,
 } from 'lucide-react';
 
 interface SidebarItem {
@@ -250,6 +251,13 @@ export function Sidebar({ user }: SidebarProps) {
         >
           <Settings className="h-5 w-5 flex-shrink-0" />
           <span className="truncate">Profile Settings</span>
+        </button>
+        <button
+          onClick={() => router.push('/profile#password')}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-yellow-50 hover:text-gray-900 mb-2 transition-colors"
+        >
+          <KeyRound className="h-5 w-5 flex-shrink-0" />
+          <span className="truncate">Reset Password</span>
         </button>
         <button
           onClick={handleLogout}

@@ -6,6 +6,7 @@ const nextConfig = {
     serverActions: {
       allowedOrigins: [
         'localhost:3000',
+        '192.168.0.104:3000',
         '192.168.1.231:3000',
         '192.168.0.139:3000',
         '192.168.1.232:3000',
@@ -16,6 +17,7 @@ const nextConfig = {
   images: {
     domains: [
       'localhost',
+      '192.168.0.104',
       '192.168.1.231',
       '192.168.0.139',
       '192.168.1.232',

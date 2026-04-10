@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -13,6 +13,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollingText, ScrollDirection } from '@/components/ui/scrolling-text';
+
+/** Nominal layout width (px) for calibrating scroll speed in the dialog preview */
+const TEXT_PREVIEW_REFERENCE_LAYOUT_W = 1920;
 
 export interface TextConfig {
   text: string;
@@ -39,6 +42,9 @@ export function TextConfigDialog({
   initialConfig = {},
   sectionName = 'Text Section',
 }: TextConfigDialogProps) {
+  const previewBoxRef = useRef<HTMLDivElement>(null);
+  const [previewBoxWidth, setPreviewBoxWidth] = useState(0);
+
   const [config, setConfig] = useState<TextConfig>({
     text: '',
     direction: 'left-to-right',
@@ -49,6 +55,19 @@ export function TextConfigDialog({
     backgroundColor: 'transparent',
     ...initialConfig,
   });
+
+  useLayoutEffect(() => {
+    if (!open || !previewBoxRef.current) return;
+    setPreviewBoxWidth(previewBoxRef.current.getBoundingClientRect().width);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !previewBoxRef.current) return;
+    const el = previewBoxRef.current;
+    const ro = new ResizeObserver(() => setPreviewBoxWidth(el.getBoundingClientRect().width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open]);
 
   useEffect(() => {
     if (open) {
@@ -64,6 +83,9 @@ export function TextConfigDialog({
       });
     }
   }, [open, initialConfig]);
+
+  const textPreviewScale =
+    previewBoxWidth > 0 ? previewBoxWidth / TEXT_PREVIEW_REFERENCE_LAYOUT_W : 0.35;
 
   const handleConfirm = () => {
     if (!config.text.trim()) {
@@ -215,12 +237,16 @@ export function TextConfigDialog({
           {/* Preview */}
           <div className="space-y-2">
             <Label>Preview</Label>
-            <div className="border-2 border-gray-200 rounded-lg overflow-hidden bg-gray-100" style={{ height: '120px' }}>
+            <div
+              ref={previewBoxRef}
+              className="border-2 border-gray-200 rounded-lg overflow-hidden bg-gray-100"
+              style={{ height: '120px' }}
+            >
               <ScrollingText
                 text={config.text || 'Sample scrolling text preview'}
                 direction={config.direction}
                 speed={config.speed}
-                fontSize={Math.min(config.fontSize, 20)} // Scale down for preview
+                fontSize={Math.max(8, config.fontSize * textPreviewScale)}
                 fontWeight={config.fontWeight}
                 textColor={config.textColor}
                 backgroundColor={config.backgroundColor}

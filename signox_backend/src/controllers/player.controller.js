@@ -388,6 +388,17 @@ async function formatLayoutResponse(layout) {
         })
     );
 
+    const textConfigObj = section.textConfig ? JSON.parse(section.textConfig) : null;
+    if (textConfigObj != null && textConfigObj.speed != null) {
+      const n = Number(textConfigObj.speed);
+      textConfigObj.speed = Number.isFinite(n) && n > 0 ? Math.max(n, 5) : 50;
+    }
+    const hasScrollTextContent =
+      section.sectionType === 'SCROLL_TEXT' ||
+      (textConfigObj &&
+        typeof textConfigObj.text === 'string' &&
+        textConfigObj.text.trim().length > 0);
+
     const sectionData = {
       id: section.id,
       name: section.name,
@@ -398,18 +409,19 @@ async function formatLayoutResponse(layout) {
       height: section.height,
       loopEnabled: section.loopEnabled,
       frequency: section.frequency,
-      type: section.sectionType === 'SCROLL_TEXT' ? 'text' : 'media',
-      hasTextConfig: !!section.textConfig,
-      textConfig: section.textConfig ? JSON.parse(section.textConfig) : null,
+      sectionType: section.sectionType,
+      type: hasScrollTextContent ? 'text' : 'media',
+      hasTextConfig: !!textConfigObj,
+      textConfig: textConfigObj,
       items: enrichedItems,
     };
 
     // Debug logging for all sections
     console.log(`[DEBUG] Section: ${section.name}`, {
       sectionType: section.sectionType,
-      mappedType: section.sectionType === 'SCROLL_TEXT' ? 'text' : 'media',
-      hasTextConfig: !!section.textConfig,
-      textConfig: section.textConfig ? JSON.parse(section.textConfig) : null
+      mappedType: hasScrollTextContent ? 'text' : 'media',
+      hasTextConfig: !!textConfigObj,
+      textConfig: textConfigObj
     });
 
     return sectionData;

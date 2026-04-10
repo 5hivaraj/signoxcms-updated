@@ -227,6 +227,18 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    const code = error.code;
+    const msg = error.message || '';
+    const isDbUnreachable =
+      code === 'P1001' ||
+      code === 'P2010' ||
+      /Server selection timeout|connection refused|Can't reach database|ECONNREFUSED/i.test(msg);
+    if (isDbUnreachable) {
+      return res.status(503).json({
+        message:
+          'Cannot reach the database. Run MongoDB locally or set DATABASE_URL in .env to your MongoDB connection string (e.g. Atlas).',
+      });
+    }
     return res.status(500).json({ message: 'Server error' });
   }
 };

@@ -12,8 +12,8 @@ const api = axios.create({
   baseURL: API_URL,
   // Allow redirects from HTTP to HTTPS
   maxRedirects: 5,
-  // Timeout after 10 seconds
-  timeout: 10000,
+  // Backend can wait on MongoDB for ~30s; use a longer timeout in dev so error bodies (e.g. 503) are readable
+  timeout: process.env.NODE_ENV === 'development' ? 45000 : 10000,
   // In development, allow self-signed certificates
   // Note: This is handled by the browser, not axios in browser environment
   withCredentials: false,

@@ -5,6 +5,21 @@ require('dotenv').config();
 // Set timezone to India (IST)
 process.env.TZ = process.env.TIMEZONE || 'Asia/Kolkata';
 
+const prisma = require('./config/db');
+void (async () => {
+  try {
+    await prisma.$connect();
+    console.log('✅ Database: connected');
+  } catch (err) {
+    const hint = err.message?.split('\n')[0] || String(err);
+    console.error(
+      '\n⚠️  DATABASE UNREACHABLE — login and most API routes will fail until this is fixed.\n' +
+        '   Point DATABASE_URL in .env at a running MongoDB (local install or MongoDB Atlas).\n' +
+        `   (${hint})\n`
+    );
+  }
+})();
+
 const express = require('express');
 const https = require('https');
 const http = require('http');

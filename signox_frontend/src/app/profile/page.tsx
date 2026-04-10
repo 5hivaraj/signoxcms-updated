@@ -283,7 +283,7 @@ export default function ProfilePage() {
         </div>
 
         {/* Password Change */}
-        <Card className="border-gray-200 shadow-lg" data-aos="fade-up" data-aos-delay="200">
+        <Card id="password" className="border-gray-200 shadow-lg" data-aos="fade-up" data-aos-delay="200">
           <CardHeader className="bg-gradient-to-r from-gray-50 to-white">
             <CardTitle className="flex items-center gap-3 text-2xl">
               <div className="bg-gradient-to-br from-yellow-400 to-orange-500 p-3 rounded-xl">

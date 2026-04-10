@@ -81,6 +81,7 @@ type Section = {
   frequency?: number;
   loopEnabled: boolean;
   type?: 'media' | 'text';
+  sectionType?: 'MEDIA' | 'SCROLL_TEXT';
   textConfig?: TextConfig;
   items: SectionItem[];
 };
@@ -101,19 +102,25 @@ function DroppableSection({
   isActive,
   onDrop,
   onConfigureText,
+  previewScale,
   children,
 }: {
   section: Section;
   isActive: boolean;
   onDrop: (mediaId: string) => void;
   onConfigureText?: () => void;
+  /** Layout canvas scale (preview px per design px); keeps scroll speed visually aligned with full-screen player */
+  previewScale: number;
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `section-${section.id}`,
   });
 
-  const isTextSection = section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || section.name?.toLowerCase().includes('scroll') || section.name?.toLowerCase().includes('text');
+  const isTextSection =
+    section.type === 'text' ||
+    section.sectionType === 'SCROLL_TEXT' ||
+    !!section.textConfig;
 
   return (
     <div
@@ -148,7 +155,7 @@ function DroppableSection({
             text={section.textConfig.text}
             direction={section.textConfig.direction}
             speed={section.textConfig.speed}
-            fontSize={Math.min(section.textConfig.fontSize, 16)} // Scale down for preview
+            fontSize={Math.max(8, section.textConfig.fontSize * previewScale)}
             fontWeight={section.textConfig.fontWeight}
             textColor={section.textConfig.textColor}
             backgroundColor={section.textConfig.backgroundColor}
@@ -202,10 +209,10 @@ function SortableMediaItem({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  if (!media) return null;
-
-  const thumbnailUrl = `${API_URL.replace('/api', '')}${media.url}`;
-  const isImage = media.type === 'IMAGE';
+  const fallbackMediaName = `Media ${item.mediaId.slice(0, 8)}`;
+  const hasMedia = !!media;
+  const thumbnailUrl = hasMedia ? `${API_URL.replace('/api', '')}${media.url}` : '';
+  const isImage = media?.type === 'IMAGE';
   const orientation = item.orientation ?? 'LANDSCAPE';
   const resizeMode = item.resizeMode ?? 'FIT';
   const rotation = (item.rotation ?? 0) as RotationDeg;
@@ -225,22 +232,30 @@ function SortableMediaItem({
         <GripVertical className="h-4 w-4" />
       </div>
       <div className="w-10 h-10 rounded overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-        {isImage ? (
+        {hasMedia && isImage ? (
           <img
             src={thumbnailUrl}
-            alt={media.name}
+            alt={media?.name || fallbackMediaName}
             className={`w-full h-full bg-black ${fitClass}`}
             style={{ transform: `rotate(${rotation}deg)`, transformOrigin: 'center center' }}
           />
-        ) : (
+        ) : hasMedia ? (
           <div className="w-full h-full flex items-center justify-center bg-gray-800">
             <Video className="h-3 w-3 text-white" />
+          </div>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gray-200">
+            <ImageIcon className="h-3 w-3 text-gray-500" />
           </div>
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-gray-900 truncate">{media.name}</p>
-        <p className="text-xs text-gray-500">{isImage ? 'Image' : 'Video'}</p>
+        <p className="text-xs font-medium text-gray-900 truncate">
+          {media?.name || fallbackMediaName}
+        </p>
+        <p className="text-xs text-gray-500">
+          {hasMedia ? (isImage ? 'Image' : 'Video') : 'Media reference'}
+        </p>
       </div>
       {onOrientationChange && (
         <select
@@ -514,6 +529,28 @@ export default function LayoutBuilderPage() {
   const [refreshingMedia, setRefreshingMedia] = useState(false);
   const [textConfigOpen, setTextConfigOpen] = useState(false);
   const [textConfigSectionId, setTextConfigSectionId] = useState<string | null>(null);
+  const mediaById = useMemo(
+    () => new Map(mediaList.map((m) => [m.id, m])),
+    [mediaList]
+  );
+
+  const normalizeLayout = useCallback((rawLayout: any): Layout => {
+    return {
+      ...rawLayout,
+      sections: (rawLayout.sections || []).map((section: any) => ({
+        ...section,
+        items: (section.items || []).map((item: any) => {
+          const resolvedMediaId = item.mediaId || item.media?.id || '';
+          const resolvedMedia = item.media || mediaById.get(resolvedMediaId);
+          return {
+            ...item,
+            mediaId: resolvedMediaId,
+            media: resolvedMedia,
+          };
+        }),
+      })),
+    };
+  }, [mediaById]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -551,6 +588,25 @@ export default function LayoutBuilderPage() {
     }
   }, [layout, activeSection]);
 
+  // Re-hydrate layout items when media library data arrives/refreshes.
+  useEffect(() => {
+    setLayout((prev) => {
+      if (!prev) return prev;
+      let changed = false;
+      const sections = prev.sections.map((section) => {
+        const items = section.items.map((item) => {
+          if (item.media) return item;
+          const resolved = mediaById.get(item.mediaId);
+          if (!resolved) return item;
+          changed = true;
+          return { ...item, media: resolved };
+        });
+        return { ...section, items };
+      });
+      return changed ? { ...prev, sections } : prev;
+    });
+  }, [mediaById]);
+
   useEffect(() => {
     let filtered = mediaList;
     
@@ -571,7 +627,7 @@ export default function LayoutBuilderPage() {
     try {
       setLoading(true);
       const res = await api.get(`/layouts/${layoutId}`);
-      setLayout(res.data.layout);
+      setLayout(normalizeLayout(res.data.layout));
       setLayoutName(res.data.layout.name);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to load layout');
@@ -878,18 +934,22 @@ export default function LayoutBuilderPage() {
   function getSectionStats(section: Section) {
     const totalMedia = section.items.length;
     const totalDuration = section.items.reduce((sum, item) => {
-      const duration = item.duration || item.media?.duration || (item.media?.type === 'IMAGE' ? 10 : 30);
+      const itemMedia = item.media || mediaById.get(item.mediaId);
+      const duration = item.duration || itemMedia?.duration || (itemMedia?.type === 'IMAGE' ? 10 : 30);
       return sum + duration;
     }, 0);
-    const totalSize = section.items.reduce((sum, item) => sum + (item.media?.fileSize || 0), 0);
+    const totalSize = section.items.reduce((sum, item) => {
+      const itemMedia = item.media || mediaById.get(item.mediaId);
+      return sum + (itemMedia?.fileSize || 0);
+    }, 0);
     const frequency = section.frequency || 0;
 
     return { totalMedia, totalDuration, totalSize, frequency };
   }
 
   // Calculate preview scale to fit within a reasonable size while maintaining aspect ratio
-  const maxPreviewWidth = 800;
-  const maxPreviewHeight = 600;
+  const maxPreviewWidth = 680;
+  const maxPreviewHeight = 380;
   const scale = layout ? Math.min(
     maxPreviewWidth / layout.width,
     maxPreviewHeight / layout.height,
@@ -1031,7 +1091,7 @@ export default function LayoutBuilderPage() {
                     <TabsTrigger 
                       key={section.id} 
                       value={section.id} 
-                      className="whitespace-nowrap flex-shrink-0 data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-400 data-[state=active]:to-yellow-500 data-[state=active]:text-gray-900"
+                      className="whitespace-nowrap flex-shrink-0 text-gray-200 hover:text-white hover:bg-white/15 data-[state=active]:bg-gradient-to-r data-[state=active]:from-yellow-400 data-[state=active]:to-yellow-500 data-[state=active]:text-gray-900"
                     >
                       {section.name}
                     </TabsTrigger>
@@ -1051,7 +1111,7 @@ export default function LayoutBuilderPage() {
         {/* Section Content */}
         <div className="flex-1 overflow-y-auto p-3 bg-gray-50">
           {currentSection && (
-            <div className="max-w-6xl mx-auto space-y-3">
+            <div className="max-w-6xl mx-auto space-y-2">
               {/* Section Statistics */}
               {sectionStats && (
                 <div 
@@ -1084,7 +1144,7 @@ export default function LayoutBuilderPage() {
 
               {/* Layout Preview */}
               <div 
-                className="bg-white p-3 rounded-xl border border-gray-200 shadow-md"
+                className="bg-white p-2 rounded-xl border border-gray-200 shadow-md"
                 data-aos="fade-up"
                 data-aos-delay="200"
               >
@@ -1095,6 +1155,7 @@ export default function LayoutBuilderPage() {
                       <DroppableSection
                         key={section.id}
                         section={section}
+                        previewScale={scale}
                         isActive={section.id === activeSection}
                         onDrop={(mediaId) => {
                           const media = mediaList.find(m => m.id === mediaId);
@@ -1108,11 +1169,11 @@ export default function LayoutBuilderPage() {
                         <div className="absolute inset-0 p-1 flex flex-col overflow-hidden">
                           <div className="flex items-center justify-between mb-0.5">
                             <div className="text-xs font-semibold text-gray-600 truncate">{section.name}</div>
-                            {(section.type === 'text' || section.name?.toLowerCase().includes('scroll') || section.name?.toLowerCase().includes('text')) && (
+                            {(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig) && (
                               <Type className="h-3 w-3 text-purple-500 flex-shrink-0" />
                             )}
                           </div>
-                          {(section.type === 'text' || section.name?.toLowerCase().includes('scroll') || section.name?.toLowerCase().includes('text')) ? (
+                          {(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig) ? (
                             section.textConfig ? (
                               <div className="text-xs text-green-600">
                                 Text configured
@@ -1129,7 +1190,7 @@ export default function LayoutBuilderPage() {
                               </div>
                             )
                           )}
-                          {section.id === activeSection && !(section.type === 'text' || section.name?.toLowerCase().includes('scroll') || section.name?.toLowerCase().includes('text')) && section.items.length === 0 && (
+                          {section.id === activeSection && !(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig) && section.items.length === 0 && (
                             <div className="text-xs text-gray-400 text-center mt-auto mb-auto">
                               Drop Media
                             </div>
@@ -1143,22 +1204,22 @@ export default function LayoutBuilderPage() {
 
               {/* Content Area */}
               <div 
-                className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-3 min-h-[180px] shadow-md"
+                className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-2 min-h-[120px] max-h-[260px] overflow-y-auto shadow-md"
                 data-aos="fade-up"
                 data-aos-delay="300"
               >
-                {(currentSection?.type === 'text' || currentSection?.name?.toLowerCase().includes('scroll') || currentSection?.name?.toLowerCase().includes('text')) ? (
-                  <div className="flex flex-col items-center justify-center h-full min-h-[120px]">
+                {(currentSection?.type === 'text' || currentSection?.sectionType === 'SCROLL_TEXT' || !!currentSection?.textConfig) && (
+                  <div className="mb-4 rounded-lg border border-purple-200 bg-purple-50 p-4">
                     <div className="text-center space-y-3">
-                      <Type className="h-12 w-12 text-purple-400 mx-auto" />
+                      <Type className="h-10 w-10 text-purple-500 mx-auto" />
                       <div>
                         <h3 className="text-base font-semibold text-gray-900 mb-2">Text Section</h3>
                         <p className="text-sm text-gray-600 mb-3">Configure scrolling text for this section</p>
-                        {currentSection.textConfig ? (
+                        {currentSection?.textConfig ? (
                           <div className="space-y-3">
-                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                            <div className="bg-white border border-purple-200 rounded-lg p-3 text-left">
                               <p className="text-sm text-purple-800 font-medium mb-2">Current Configuration:</p>
-                              <div className="text-xs text-purple-600 space-y-1">
+                              <div className="text-xs text-purple-700 space-y-1">
                                 <p><strong>Text:</strong> {currentSection.textConfig.text}</p>
                                 <p><strong>Direction:</strong> {currentSection.textConfig.direction}</p>
                                 <p><strong>Speed:</strong> {currentSection.textConfig.speed} px/sec</p>
@@ -1174,7 +1235,7 @@ export default function LayoutBuilderPage() {
                           </div>
                         ) : (
                           <Button
-                            onClick={() => openTextConfig(currentSection.id)}
+                            onClick={() => openTextConfig(currentSection!.id)}
                             className="bg-purple-500 hover:bg-purple-600 text-white"
                           >
                             <Type className="h-4 w-4 mr-2" />
@@ -1184,15 +1245,22 @@ export default function LayoutBuilderPage() {
                       </div>
                     </div>
                   </div>
-                ) : (
-                  !currentSection || currentSection.items.length === 0 ? (
-                    <div className="flex items-center justify-center h-full text-gray-400 min-h-[120px]">
-                      <div className="text-center">
-                        <p className="text-sm font-medium mb-1">[ Drag & Drop Media Here ]</p>
-                        <p className="text-xs">Or click the + button on media items to add them</p>
-                      </div>
+                )}
+
+                {!currentSection || currentSection.items.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-gray-400 min-h-[120px]">
+                    <div className="text-center">
+                      <p className="text-sm font-medium mb-1">[ Drag & Drop Media Here ]</p>
+                      <p className="text-xs">Or click the + button on media items to add them</p>
                     </div>
-                  ) : (
+                  </div>
+                ) : (
+                  <>
+                    {(currentSection.type === 'text' || currentSection.sectionType === 'SCROLL_TEXT' || !!currentSection.textConfig) && (
+                      <p className="text-xs text-amber-700 mb-2">
+                        Assigned media in this text section (you can remove/reorder below):
+                      </p>
+                    )}
                     <SortableContext
                       items={currentSection.items.map(item => item.id)}
                       strategy={verticalListSortingStrategy}
@@ -1202,16 +1270,16 @@ export default function LayoutBuilderPage() {
                           <SortableMediaItem
                             key={item.id}
                             item={item}
-                            media={item.media}
-                            onOrientationChange={(itemId, orientation) => updateSectionItemField(currentSection!.id, itemId, 'orientation', orientation)}
-                            onResizeModeChange={(itemId, resizeMode) => updateSectionItemField(currentSection!.id, itemId, 'resizeMode', resizeMode)}
-                            onRotationChange={(itemId, rotation) => updateSectionItemField(currentSection!.id, itemId, 'rotation', rotation)}
-                            onRemove={(itemId) => removeItemFromSection(currentSection!.id, itemId)}
+                            media={item.media || mediaById.get(item.mediaId)}
+                            onOrientationChange={(itemId, orientation) => updateSectionItemField(currentSection.id, itemId, 'orientation', orientation)}
+                            onResizeModeChange={(itemId, resizeMode) => updateSectionItemField(currentSection.id, itemId, 'resizeMode', resizeMode)}
+                            onRotationChange={(itemId, rotation) => updateSectionItemField(currentSection.id, itemId, 'rotation', rotation)}
+                            onRemove={(itemId) => removeItemFromSection(currentSection.id, itemId)}
                           />
                         ))}
                       </div>
                     </SortableContext>
-                  )
+                  </>
                 )}
               </div>
             </div>

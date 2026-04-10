@@ -1,6 +1,12 @@
 const prisma = require('../config/db');
 const { getClientAdminId } = require('../utils/storage.utils');
 
+/** Coerce API/JSON speed to a positive px/sec (matches player & CMS slider) */
+function normalizeScrollSpeedPxPerSec(speed) {
+  const n = Number(speed);
+  return Number.isFinite(n) && n > 0 ? Math.max(n, 5) : 50;
+}
+
 /**
  * GET /api/layouts
  * List all layouts for the current user's client
@@ -894,7 +900,7 @@ exports.addScrollText = async (req, res) => {
         layoutId: id,
         text,
         direction: scrollDirection,
-        speed: speed || 50,
+        speed: normalizeScrollSpeedPxPerSec(speed),
         fontSize: fontSize || 24,
         fontColor: fontColor || '#FFFFFF',
         backgroundColor: backgroundColor || null,
@@ -954,7 +960,7 @@ exports.updateScrollText = async (req, res) => {
       const validDirections = ['LEFT_TO_RIGHT', 'RIGHT_TO_LEFT', 'TOP_TO_BOTTOM', 'BOTTOM_TO_TOP'];
       updateData.direction = validDirections.includes(direction) ? direction : 'LEFT_TO_RIGHT';
     }
-    if (speed !== undefined) updateData.speed = speed;
+    if (speed !== undefined) updateData.speed = normalizeScrollSpeedPxPerSec(speed);
     if (fontSize !== undefined) updateData.fontSize = fontSize;
     if (fontColor !== undefined) updateData.fontColor = fontColor;
     if (backgroundColor !== undefined) updateData.backgroundColor = backgroundColor;
@@ -1039,7 +1045,7 @@ exports.updateSectionTextConfig = async (req, res) => {
     const textConfig = {
       text,
       direction,
-      speed: speed || 50,
+      speed: normalizeScrollSpeedPxPerSec(speed),
       fontSize: fontSize || 24,
       fontWeight: fontWeight || 'normal',
       textColor: textColor || '#000000',
