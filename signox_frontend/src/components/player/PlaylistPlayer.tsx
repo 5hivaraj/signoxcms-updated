@@ -119,9 +119,10 @@ export function PlaylistPlayer({
           
           try {
             await videoRef.current.play();
-          } catch (err) {
+          } catch (err: unknown) {
+            const errName = err instanceof Error ? err.name : '';
             // If audio autoplay is blocked, try muted playback
-            if (err.name === 'NotAllowedError') {
+            if (errName === 'NotAllowedError') {
               console.log('Audio autoplay blocked, falling back to muted playback');
               videoRef.current.muted = true;
               try {
@@ -129,7 +130,7 @@ export function PlaylistPlayer({
               } catch (mutedErr) {
                 console.error('Even muted playback failed:', mutedErr);
               }
-            } else if (err.name !== 'AbortError') {
+            } else if (errName !== 'AbortError') {
               console.log('Autoplay with audio blocked by browser policy');
             }
           }

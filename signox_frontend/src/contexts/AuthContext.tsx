@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
+import { isAxiosError } from 'axios';
 import api from '@/lib/api';
 
 export type Role = 'SUPER_ADMIN' | 'CLIENT_ADMIN' | 'USER_ADMIN' | 'STAFF';
@@ -113,10 +114,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           window.location.href = redirectPath;
         }
       }
-    } catch (error: any) {
-      console.error('Login error details:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Login failed';
-      throw new Error(errorMessage);
+    } catch (error: unknown) {
+      if (isAxiosError(error) && !error.response) {
+        const base = String(api.defaults.baseURL ?? 'API');
+        const msg = `Cannot reach the API (${base}). Start the backend on that host/port or fix NEXT_PUBLIC_API_URL in .env.local.`;
+        console.warn(msg);
+        throw new Error(msg);
+      }
+      if (isAxiosError(error) && error.response?.data) {
+        const data = error.response.data as { message?: string };
+        const errorMessage = data?.message || error.message || 'Login failed';
+        throw new Error(errorMessage);
+      }
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Login failed');
     }
   };
 
