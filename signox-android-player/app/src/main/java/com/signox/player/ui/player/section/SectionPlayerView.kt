@@ -20,6 +20,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
+import com.google.android.exoplayer2.source.DefaultMediaSourceFactory
 import com.signox.player.BuildConfig
 import com.signox.player.R
 import com.signox.player.data.dto.LayoutItemDto
@@ -27,6 +28,7 @@ import com.signox.player.data.dto.LayoutSectionDto
 import com.signox.player.data.dto.MediaType
 import com.signox.player.data.dto.isScrollTextSection
 import com.signox.player.databinding.ViewSectionPlayerBinding
+import com.signox.player.media.PlaybackDataSource
 
 class SectionPlayerView @JvmOverloads constructor(
     context: Context,
@@ -58,7 +60,12 @@ class SectionPlayerView @JvmOverloads constructor(
     }
     
     private fun initializePlayer() {
-        exoPlayer = ExoPlayer.Builder(context).build().apply {
+        val mediaSourceFactory = DefaultMediaSourceFactory(
+            PlaybackDataSource.defaultDataSourceFactory(context)
+        )
+        exoPlayer = ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build().apply {
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
@@ -75,7 +82,8 @@ class SectionPlayerView @JvmOverloads constructor(
                 }
                 
                 override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
-                    Log.e(TAG, "ExoPlayer error in section ${section?.id}: ${error.message}")
+                    Log.e(TAG, "ExoPlayer error in section ${section?.id}: ${error.message} code=${error.errorCode}")
+                    error.cause?.let { Log.e(TAG, "Cause: ${it.message}", it) }
                     advanceToNext() // Skip to next on error
                 }
             })
@@ -309,9 +317,21 @@ class SectionPlayerView @JvmOverloads constructor(
             else -> com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
         
-        // Use OfflineMediaLoader for offline support
+        // Prefer MP4 originalUrl when present (same as playlist player); rewrite host via OfflineMediaLoader/getMediaUrl
+        val isHlsMaster =
+            item.media.url.contains("/hls/") && item.media.url.endsWith("/index.m3u8")
+        val hasOriginalUrl = !item.media.originalUrl.isNullOrEmpty()
+        val videoUrlToUse = when {
+            hasOriginalUrl -> item.media.originalUrl!!
+            else -> item.media.url
+        }
+        if (isHlsMaster && hasOriginalUrl) {
+            Log.d(TAG, "Using originalUrl (MP4) for layout section video instead of HLS master")
+        }
+
         val offlineLoader = com.signox.player.cache.OfflineMediaLoader.getInstance(context)
-        val videoUrl = offlineLoader.loadMedia(item.media.url)
+        val videoUrl = offlineLoader.loadMedia(videoUrlToUse)
+        Log.d(TAG, "Layout video: selected=$videoUrlToUse playback=$videoUrl")
         val mediaItem = MediaItem.fromUri(Uri.parse(videoUrl))
         
         exoPlayer?.apply {

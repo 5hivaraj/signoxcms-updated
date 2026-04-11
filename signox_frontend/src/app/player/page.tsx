@@ -4,7 +4,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { PlaylistPlayer, type PlaylistItem as RenderItem } from '@/components/player/PlaylistPlayer';
-import { LayoutPlayer, type Layout as LayoutType } from '@/components/player/LayoutPlayer';
+import {
+  LayoutPlayer,
+  type Layout as LayoutType,
+  type LayoutSection,
+} from '@/components/player/LayoutPlayer';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 const PUBLIC_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace('/api', '');
@@ -328,7 +332,7 @@ export default function PlayerPage() {
       // Debug logging for layout sections
       if (newLayout && newLayout.sections) {
         console.log('[DEBUG] Layout received:', newLayout.name);
-        newLayout.sections.forEach(section => {
+        newLayout.sections.forEach((section: LayoutSection) => {
           console.log(`[DEBUG] Section: ${section.name}`, {
             type: section.type,
             hasTextConfig: !!section.textConfig,

@@ -907,30 +907,6 @@ export default function LayoutBuilderPage() {
     updateSection(sectionId, updatedItems);
   }
 
-  function removeItemFromSection(sectionId: string, itemId: string) {
-    if (!layout) return;
-    const section = layout.sections.find(s => s.id === sectionId);
-    if (!section) return;
-    const updatedItems = section.items.filter(item => item.id !== itemId);
-    updateSection(sectionId, updatedItems);
-  }
-
-  function updateSectionItemField(sectionId: string, itemId: string, field: 'orientation' | 'resizeMode' | 'rotation', value: OrientationType | ResizeModeType | RotationDeg) {
-    if (!layout) return;
-    const section = layout.sections.find(s => s.id === sectionId);
-    if (!section) return;
-    const updatedItems = section.items.map(item =>
-      item.id === itemId ? { ...item, [field]: value } : item
-    );
-    setLayout({
-      ...layout,
-      sections: layout.sections.map(s =>
-        s.id === sectionId ? { ...s, items: updatedItems } : s
-      ),
-    });
-    updateSection(sectionId, updatedItems);
-  }
-
   function getSectionStats(section: Section) {
     const totalMedia = section.items.length;
     const totalDuration = section.items.reduce((sum, item) => {

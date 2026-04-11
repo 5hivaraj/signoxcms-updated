@@ -1,5 +1,6 @@
 package com.signox.player.data.api
 
+import android.net.Uri
 import com.signox.player.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -9,11 +10,9 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
     
-    // HARDCODED SERVER URL - App will always connect to this URL
+    // HARDCODED SERVER URL - App will always connect to this URL (canonical: signoxcms.com, no www)
     // No server configuration screen will be shown
-    // TEMP (local testing): point to your backend machine IP.
-    // Change back to production domain before shipping APK.
-    private const val FIXED_BASE_URL = "http://192.168.1.130:5000/api"
+    private const val FIXED_BASE_URL = "https://signoxcms.com/api"
     private var baseUrl: String = FIXED_BASE_URL
     private var retrofit: Retrofit? = null
     
@@ -58,14 +57,43 @@ object ApiClient {
         getRetrofit().create(SignoXApi::class.java)
     }
     
+    /**
+     * Build a playable URL for this app. Relative paths use the CMS origin (API base without `/api`).
+     * Absolute URLs are passed through **unless** they point at our content paths (`/uploads`, `/hls/`, `/downloads`)
+     * with a **different host** (e.g. `http://localhost:5000/...` or a LAN IP from dev) — those are rewritten
+     * to the current CMS origin so production APKs still work when the DB has stale full URLs.
+     */
     fun getMediaUrl(mediaUrl: String): String {
-        return if (mediaUrl.startsWith("http")) {
-            mediaUrl
-        } else {
-            // Media files are served from /uploads, not /api/uploads
-            // Remove /api from base URL for media files
-            val mediaBaseUrl = FIXED_BASE_URL.replace("/api", "")
-            "$mediaBaseUrl${mediaUrl}"
+        val mediaOrigin = FIXED_BASE_URL.replace("/api", "").trimEnd('/')
+        val trimmed = mediaUrl.trim()
+        if (trimmed.isEmpty()) return trimmed
+
+        fun isOurContentPath(path: String?): Boolean {
+            if (path.isNullOrBlank()) return false
+            return path.startsWith("/uploads") ||
+                path.contains("/hls/") ||
+                path.startsWith("/downloads")
         }
+
+        val isAbsolute = trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+
+        if (!isAbsolute) {
+            val path = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
+            return Uri.parse(mediaOrigin).buildUpon().path(path).build().toString()
+        }
+
+        val parsed = Uri.parse(trimmed)
+        val path = parsed.path
+        if (!isOurContentPath(path)) {
+            return trimmed
+        }
+
+        return Uri.parse(mediaOrigin).buildUpon()
+            .path(path)
+            .encodedQuery(parsed.encodedQuery)
+            .encodedFragment(parsed.encodedFragment)
+            .build()
+            .toString()
     }
 }

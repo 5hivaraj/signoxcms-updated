@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
 import { ScrollingText, ScrollDirection } from '@/components/ui/scrolling-text';
+import { resolvePublicMediaUrl } from '@/lib/mediaUrl';
 
 type MediaType = 'IMAGE' | 'VIDEO';
 
@@ -12,6 +13,7 @@ export type LayoutMedia = {
   name: string;
   type: MediaType;
   url: string;
+  originalUrl?: string | null;
   duration?: number | null;
 };
 
@@ -273,7 +275,10 @@ export function LayoutPlayer({
           const videoEl = videoRefs.current[section.id];
           if (!videoEl) continue;
 
-          const url = `${publicBaseUrl}${currentItem.media.url}`;
+          const streamUrl =
+            currentItem.media.originalUrl || currentItem.media.url;
+          const url = resolvePublicMediaUrl(streamUrl, publicBaseUrl) ?? '';
+          if (!url) continue;
           const isHLS = url.includes('.m3u8');
 
           // Cleanup existing HLS instance
@@ -394,7 +399,12 @@ export function LayoutPlayer({
         }
       : {};
 
-    const url = `${publicBaseUrl}${currentItem.media.url}`;
+    const streamUrl =
+      currentItem.media.type === 'VIDEO' && currentItem.media.originalUrl
+        ? currentItem.media.originalUrl
+        : currentItem.media.url;
+    const url = resolvePublicMediaUrl(streamUrl, publicBaseUrl) ?? '';
+    if (!url) return null;
 
     const inner =
       currentItem.media.type === 'IMAGE' ? (

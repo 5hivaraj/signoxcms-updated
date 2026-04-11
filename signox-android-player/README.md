@@ -6,7 +6,7 @@ A professional digital signage player for Android devices with enterprise kiosk 
 
 **Permanently configured to connect to:**
 ```
-https://www.signoxcms.com/player
+https://signoxcms.com/player
 ```
 
 No server configuration required by end users. The app automatically connects on launch.
@@ -81,7 +81,7 @@ Output: `app/build/outputs/apk/release/app-release.apk`
 ```
 
 ### Detailed Flow
-1. **App Launch**: Automatically connects to `https://www.signoxcms.com/player`
+1. **App Launch**: Automatically connects to `https://signoxcms.com/player`
 2. **Pairing**: Displays a pairing code (e.g., "ABC123")
 3. **Admin Action**: Admin enters code in web dashboard
 4. **Content Delivery**: Device receives and plays assigned content
@@ -123,7 +123,7 @@ adb install app/build/outputs/apk/release/app-release.apk
 - GPS (optional, for location tracking)
 
 ### Server Requirements
-- SignoX CMS server running at `https://www.signoxcms.com/player`
+- SignoX CMS server running at `https://signoxcms.com/player`
 - HTTPS enabled
 - Valid SSL certificate
 
@@ -139,7 +139,7 @@ app/src/main/java/com/signox/player/data/api/ApiClient.kt
 
 To change it, modify:
 ```kotlin
-private const val FIXED_BASE_URL = "https://your-new-url.com/player"
+private const val FIXED_BASE_URL = "https://signoxcms.com/api"
 ```
 
 ### Exit PIN
@@ -254,7 +254,7 @@ For technical support:
 ## ✅ Status
 
 - **Configuration**: ✅ Complete
-- **Server URL**: `https://www.signoxcms.com/player`
+- **Server URL**: `https://signoxcms.com/player`
 - **Production Ready**: ✅ Yes
 - **Last Updated**: February 2026
 

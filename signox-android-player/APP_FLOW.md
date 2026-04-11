@@ -8,7 +8,7 @@
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│         Auto-connect to: https://www.signoxcms.com/player       │
+│         Auto-connect to: https://signoxcms.com/player       │
 │                    (No user input required)                      │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
@@ -149,7 +149,7 @@
                     (HTTPS Connection)
                               ↕
 ┌─────────────────────────────────────────────────────────────────┐
-│              https://www.signoxcms.com/player                    │
+│              https://signoxcms.com/player                    │
 │                                                                  │
 │  Endpoints:                                                      │
 │  • POST /generate-pairing-code                                   │

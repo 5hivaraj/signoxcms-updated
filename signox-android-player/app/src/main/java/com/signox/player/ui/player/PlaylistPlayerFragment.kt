@@ -24,6 +24,7 @@ import com.signox.player.data.dto.MediaType
 import com.signox.player.data.dto.PlaylistDto
 import com.signox.player.data.dto.PlaylistItemDto
 import com.signox.player.databinding.FragmentPlaylistPlayerBinding
+import com.signox.player.media.PlaybackDataSource
 import java.io.File
 
 class PlaylistPlayerFragment : Fragment() {
@@ -119,7 +120,7 @@ class PlaylistPlayerFragment : Fragment() {
         val simpleCache = getOrCreateCache(requireContext())
         
         // Create data source factory that supports both HTTP and file:// URIs
-        val dataSourceFactory = com.google.android.exoplayer2.upstream.DefaultDataSource.Factory(requireContext())
+        val dataSourceFactory = PlaybackDataSource.defaultDataSourceFactory(requireContext())
         
         // Create cache data source factory with AGGRESSIVE caching for offline playback
         val cacheDataSourceFactory = com.google.android.exoplayer2.upstream.cache.CacheDataSource.Factory()

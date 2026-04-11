@@ -184,10 +184,23 @@ app.use(logSuspiciousActivity);
 app.use(auditRequest);
 
 /* =========================
-   STATIC UPLOADS (RENDER DISK)
+   STATIC UPLOADS & DEPLOYS
+   • URLs: GET https://signoxcms.com/uploads/<filename> — served from the folder below.
+   • Path: always signox_backend/public/uploads (resolved from this file, not cwd), so PM2 cwd does not break /uploads.
+   • Deploying new code (git pull, rsync) does NOT move media files. You must either:
+       – keep this folder on the server as-is, or
+       – copy/rsync public/uploads from a backup or old server when you migrate.
+   • After deploy, restart Node (e.g. pm2 restart) so changes apply.
+   • AWS S3 in this project: used only for player-app binaries (APK/WGT download URLs)
+     when USE_S3_FOR_PLAYER_APPS=true — see playerApps.controller.js. CMS images/videos
+     from the dashboard are stored under public/uploads unless you manually store full
+     S3/CloudFront URLs in the database (then the app uses those URLs as-is).
 ========================= */
 
-app.use('/uploads', express.static('public/uploads', {
+const uploadsStaticRoot = path.join(__dirname, '../public/uploads');
+const downloadsStaticRoot = path.join(__dirname, '../../signox_frontend/public/downloads');
+
+app.use('/uploads', express.static(uploadsStaticRoot, {
   setHeaders: (res, filePath) => {
     const map = {
       '.mp4': 'video/mp4',
@@ -217,7 +230,7 @@ app.use('/uploads', express.static('public/uploads', {
 }));
 
 // Serve player app downloads (APK, WGT, widget.xml)
-app.use('/downloads', express.static('../signox_frontend/public/downloads', {
+app.use('/downloads', express.static(downloadsStaticRoot, {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.wgt')) {
       // Samsung SSSP accepts multiple MIME types for .wgt files

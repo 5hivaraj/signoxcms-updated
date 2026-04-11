@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Hls from 'hls.js';
+import { resolvePublicMediaUrl } from '@/lib/mediaUrl';
 
 type MediaType = 'IMAGE' | 'VIDEO';
 
@@ -11,6 +12,8 @@ export type PlaylistMedia = {
   name: string;
   type: MediaType;
   url: string;
+  /** MP4 or direct file; preferred over HLS `url` for playback when set */
+  originalUrl?: string | null;
   duration?: number | null;
 };
 
@@ -91,10 +94,11 @@ export function PlaylistPlayer({
   useEffect(() => {
     if (!current || current.media.type !== 'VIDEO' || !videoRef.current) return;
 
-    const base = publicBaseUrl?.replace(/\/$/, '') || '';
-    const path = current.media.url?.startsWith('/') ? current.media.url : `/${current.media.url}`;
-    const src = base && path ? `${base}${path}` : null;
-    
+    const streamUrl =
+      current.media.type === 'VIDEO' && current.media.originalUrl
+        ? current.media.originalUrl
+        : current.media.url;
+    const src = resolvePublicMediaUrl(streamUrl, publicBaseUrl);
     if (!src) return;
 
     // Check if it's an HLS stream
@@ -224,7 +228,7 @@ export function PlaylistPlayer({
         videoRef.current.load(); // This will abort any pending requests
       }
     };
-  }, [current?.media.id, publicBaseUrl, ordered.length]);
+  }, [current?.media.id, current?.media.url, current?.media.originalUrl, publicBaseUrl, ordered.length]);
 
   // Timer for advancing to next item. Depend only on idx and ordered.length so config polling
   // (which replaces items/ordered) doesn't clear the timer and prevent advancement.
@@ -323,12 +327,39 @@ export function PlaylistPlayer({
     };
   }, []);
 
+  // No playable items (avoid silent black screen)
+  if (ordered.length === 0) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-black p-8 text-center text-white">
+        <div className="max-w-md space-y-2">
+          <p className="text-xl font-semibold">No playable media</p>
+          <p className="text-sm text-gray-400">
+            {items.length === 0
+              ? 'This playlist has no items. Add media in the dashboard.'
+              : 'Playlist items have no media attached, or URLs are missing.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!current) return null;
 
-  const base = publicBaseUrl?.replace(/\/$/, '') || '';
-  const path = current.media.url?.startsWith('/') ? current.media.url : `/${current.media.url}`;
-  const src = base && path ? `${base}${path}` : null;
-  if (!src) return null;
+  const streamUrlForPlayback =
+    current.media.type === 'VIDEO' && current.media.originalUrl
+      ? current.media.originalUrl
+      : current.media.url;
+  const src = resolvePublicMediaUrl(streamUrlForPlayback, publicBaseUrl);
+  if (!src) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-black p-8 text-center text-white">
+        <div className="max-w-md space-y-2">
+          <p className="text-xl font-semibold">Invalid media URL</p>
+          <p className="text-sm text-gray-400">{current.media.name}</p>
+        </div>
+      </div>
+    );
+  }
 
   const resizeMode = current.resizeMode || 'FIT';
   const rotation = current.rotation ?? 0;
