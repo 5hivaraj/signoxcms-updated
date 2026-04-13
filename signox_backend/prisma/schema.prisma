@@ -249,7 +249,9 @@ model Media {
   originalName String?
   filename     String?
   type         MediaType
-  url          String // File path or URL (HLS for videos)
+  url          String // Relative path (/uploads/...), full HTTPS URL (S3/CDN), or HLS URL
+  s3Key        String? // S3 object key for primary file when using S3 (for delete / derived paths)
+  s3ExtraKeys  String[] @default([]) // Additional S3 keys (thumbnails, optimized variants)
   originalUrl  String? // Original MP4 URL for offline playback
   duration     Int? // Duration in seconds (for videos)
   fileSize     Int? // File size in bytes

@@ -53,8 +53,10 @@ import {
 import api from '@/lib/api';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
+import { resolvePublicMediaUrl } from '@/lib/mediaUrl';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const PUBLIC_BASE = API_URL.replace('/api', '');
 
 interface Media {
   id: string;
@@ -126,7 +128,7 @@ function SortableItem({
 
   if (!media) return null;
 
-  const thumbnailUrl = `${API_URL.replace('/api', '')}${media.url}`;
+  const thumbnailUrl = resolvePublicMediaUrl(media.url, PUBLIC_BASE) ?? '';
   const isImage = media.type === 'IMAGE';
   const currentDuration = item.duration ?? (isImage ? 10 : media.duration || 30);
   const orientation = item.orientation ?? 'LANDSCAPE';
@@ -304,7 +306,7 @@ function AddToPlaylistDialog({
 
   if (!media) return null;
 
-  const thumbnailUrl = `${API_URL.replace('/api', '')}${media.url}`;
+  const thumbnailUrl = resolvePublicMediaUrl(media.url, PUBLIC_BASE) ?? '';
   const isImage = media.type === 'IMAGE';
   const fitClass = objectFitClass[resizeMode];
   const isPortrait = orientation === 'PORTRAIT';
@@ -424,7 +426,7 @@ function MediaCard({ media, isInPlaylist, onAdd, canEdit }: {
   onAdd: () => void;
   canEdit: boolean;
 }) {
-  const thumbnailUrl = `${API_URL.replace('/api', '')}${media.url}`;
+  const thumbnailUrl = resolvePublicMediaUrl(media.url, PUBLIC_BASE) ?? '';
   const isImage = media.type === 'IMAGE';
 
   return (
@@ -923,7 +925,7 @@ export default function PlaylistEditorPage() {
                     <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded bg-gray-100">
                       {activeMedia.type === 'IMAGE' ? (
                         <img
-                          src={`${API_URL.replace('/api', '')}${activeMedia.url}`}
+                          src={resolvePublicMediaUrl(activeMedia.url, PUBLIC_BASE) ?? ''}
                           alt={activeMedia.name}
                           className="h-full w-full object-cover"
                         />

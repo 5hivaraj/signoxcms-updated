@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Image as ImageIcon, Video, HardDrive, FolderOpen } from 'lucide-react';
 import api from '@/lib/api';
+import { resolvePublicMediaUrl } from '@/lib/mediaUrl';
 import { useRouter } from 'next/navigation';
 import { StorageIndicator } from '@/components/ui/storage-indicator';
 import AOS from 'aos';
@@ -39,6 +40,7 @@ export default function StaffMediaPage() {
   const { user } = useAuth();
   const router = useRouter();
   const publicBaseUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace('/api', '');
+  const mediaUrl = (u: string | null | undefined) => resolvePublicMediaUrl(u, publicBaseUrl) ?? '';
 
   const [media, setMedia] = useState<Media[]>([]);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
@@ -195,14 +197,14 @@ export default function StaffMediaPage() {
                   <div className="relative aspect-video bg-gray-100">
                     {item.type === 'IMAGE' ? (
                       <img
-                        src={item.thumbnailUrl ? `${publicBaseUrl}${item.thumbnailUrl}` : `${publicBaseUrl}${item.url}`}
+                        src={item.thumbnailUrl ? mediaUrl(item.thumbnailUrl) : mediaUrl(item.url)}
                         alt={item.name}
                         className="h-full w-full object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           // If thumbnail failed, try original image
                           if (item.thumbnailUrl && target.src.includes(item.thumbnailUrl)) {
-                            target.src = `${publicBaseUrl}${item.url}`;
+                            target.src = mediaUrl(item.url);
                             return;
                           }
                           // If original also failed, show placeholder
@@ -214,7 +216,7 @@ export default function StaffMediaPage() {
                       item.thumbnailUrl ? (
                         <div className="relative h-full w-full">
                           <img
-                            src={`${publicBaseUrl}${item.thumbnailUrl}`}
+                            src={mediaUrl(item.thumbnailUrl)}
                             alt={item.name}
                             className="h-full w-full object-cover"
                             onError={(e) => {

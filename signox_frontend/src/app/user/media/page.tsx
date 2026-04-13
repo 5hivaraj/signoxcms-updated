@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { StorageIndicator } from '@/components/ui/storage-indicator';
 import { cn } from '@/lib/utils';
+import { resolvePublicMediaUrl } from '@/lib/mediaUrl';
 import { Loader2, Trash2, Upload, Video, Calendar, HardDrive, Maximize2, Monitor, Image as ImageIcon, FileText, Check, Film } from 'lucide-react';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
@@ -56,6 +57,7 @@ export default function MediaLibraryPage() {
   const { user } = useAuth();
   const router = useRouter();
   const publicBaseUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace('/api', '');
+  const mediaUrl = (u: string | null | undefined) => resolvePublicMediaUrl(u, publicBaseUrl) ?? '';
 
   const [media, setMedia] = useState<Media[]>([]);
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
@@ -862,16 +864,16 @@ export default function MediaLibraryPage() {
                         // Use thumbnail if available, fallback to original image
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={m.thumbnailUrl ? `${publicBaseUrl}${m.thumbnailUrl}` : `${publicBaseUrl}${m.url}`}
+                          src={m.thumbnailUrl ? mediaUrl(m.thumbnailUrl) : mediaUrl(m.url)}
                           alt={title}
                           className="h-full w-full object-cover"
                           onError={(e) => {
-                            console.warn('🖼️ [IMAGE DEBUG] Failed to load image:', m.thumbnailUrl ? `${publicBaseUrl}${m.thumbnailUrl}` : `${publicBaseUrl}${m.url}`);
+                            console.warn('🖼️ [IMAGE DEBUG] Failed to load image:', m.thumbnailUrl ? mediaUrl(m.thumbnailUrl) : mediaUrl(m.url));
                             const target = e.target as HTMLImageElement;
                             
                             // If thumbnail failed, try original image
                             if (m.thumbnailUrl && target.src.includes(m.thumbnailUrl)) {
-                              target.src = `${publicBaseUrl}${m.url}`;
+                              target.src = mediaUrl(m.url);
                               return;
                             }
                             
@@ -889,11 +891,11 @@ export default function MediaLibraryPage() {
                           <div className="relative h-full w-full">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
-                              src={`${publicBaseUrl}${m.thumbnailUrl}`}
+                              src={mediaUrl(m.thumbnailUrl)}
                               alt={title}
                               className="h-full w-full object-cover"
                               onError={(e) => {
-                                console.warn('🎬 [VIDEO DEBUG] Failed to load video thumbnail:', `${publicBaseUrl}${m.thumbnailUrl}`);
+                                console.warn('🎬 [VIDEO DEBUG] Failed to load video thumbnail:', mediaUrl(m.thumbnailUrl));
                                 const target = e.target as HTMLImageElement;
                                 target.style.display = 'none';
                                 const placeholder = target.parentElement?.querySelector('.video-placeholder');

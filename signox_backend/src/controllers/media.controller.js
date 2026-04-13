@@ -1,13 +1,39 @@
 const prisma = require('../config/db');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { checkStorageLimit, getClientStorageInfo, getClientAdminId, incrementMonthlyUpload } = require('../utils/storage.utils');
 const imageOptimizationService = require('../services/image-optimization.service');
+const s3Media = require('../services/s3-media.service');
 const paginationService = require('../services/pagination.service');
 const { catchAsync } = require('../middleware/error.middleware');
 const { getFileMetadata } = require('../utils/file.utils');
+
+function guessContentType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const map = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+    '.mov': 'video/quicktime',
+    '.avi': 'video/x-msvideo',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+function safeUnlink(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (e) {
+    console.warn('safeUnlink:', filePath, e.message);
+  }
+}
 
 const publicRoot = path.join(__dirname, '../../public');
 const uploadsDir = path.join(publicRoot, 'uploads');
@@ -19,23 +45,25 @@ const uploadsDir = path.join(publicRoot, 'uploads');
  */
 function getThumbnailUrl(media) {
   if (!media.filename) return null;
-  
+
   const baseName = path.parse(media.filename).name;
-  
+
+  if (media.s3Key) {
+    return s3Media.buildPublicUrl(s3Media.thumbnailKeyFromMainKey(media.s3Key));
+  }
+
   if (media.type === 'IMAGE') {
-    // Check if optimized thumbnail exists
     const thumbnailPath = path.join(uploadsDir, 'thumbnails', `${baseName}_thumb.jpg`);
     if (fs.existsSync(thumbnailPath)) {
       return `/uploads/thumbnails/${baseName}_thumb.jpg`;
     }
   } else if (media.type === 'VIDEO') {
-    // Check if video thumbnail exists
     const thumbnailPath = path.join(uploadsDir, 'thumbnails', `${baseName}_thumb.jpg`);
     if (fs.existsSync(thumbnailPath)) {
       return `/uploads/thumbnails/${baseName}_thumb.jpg`;
     }
   }
-  
+
   return null;
 }
 
@@ -46,14 +74,19 @@ function getThumbnailUrl(media) {
  */
 function getPreviewUrl(media) {
   if (!media.filename || media.type !== 'IMAGE') return null;
-  
+
   const baseName = path.parse(media.filename).name;
+
+  if (media.s3Key) {
+    return s3Media.buildPublicUrl(s3Media.previewKeyFromMainKey(media.s3Key));
+  }
+
   const previewPath = path.join(uploadsDir, 'optimized', `${baseName}_preview.jpg`);
-  
+
   if (fs.existsSync(previewPath)) {
     return `/uploads/optimized/${baseName}_preview.jpg`;
   }
-  
+
   return null;
 }
 
@@ -238,7 +271,9 @@ exports.createMedia = catchAsync(async (req, res) => {
 
   const mimeType = req.file.mimetype;
   const originalName = req.file.originalname;
-  const filename = req.file.filename;
+  const filename =
+    req.file.filename ||
+    `file-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(req.file.originalname)}`;
   const fileSize = req.file.size;
 
   // Check storage limit before processing
@@ -247,10 +282,9 @@ exports.createMedia = catchAsync(async (req, res) => {
   
   if (!clientAdminId) {
     console.log('❌ [MEDIA CREATE DEBUG] No client admin ID found');
-    // Delete the uploaded file since we can't use it
     const filePath = req.file.path;
     try {
-      if (fs.existsSync(filePath)) {
+      if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     } catch (deleteError) {
@@ -266,10 +300,9 @@ exports.createMedia = catchAsync(async (req, res) => {
   console.log('📤 [MEDIA CREATE DEBUG] Storage check result:', storageCheck);
   
   if (!storageCheck.canUpload) {
-    // Delete the uploaded file since we can't use it
     const filePath = req.file.path;
     try {
-      if (fs.existsSync(filePath)) {
+      if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     } catch (deleteError) {
@@ -293,10 +326,9 @@ exports.createMedia = catchAsync(async (req, res) => {
 
   if (!type) {
     console.log('❌ [MEDIA CREATE DEBUG] Unsupported file type:', mimeType);
-    // Delete the uploaded file since it's not supported
     const filePath = req.file.path;
     try {
-      if (fs.existsSync(filePath)) {
+      if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     } catch (deleteError) {
@@ -306,66 +338,6 @@ exports.createMedia = catchAsync(async (req, res) => {
     return res.status(400).json({ message: 'Unsupported file type' });
   }
 
-  let url;
-  let originalUrl = null; // Store original MP4 URL for offline playback 
-  let finalFilename;
-  let duration = null;
-  let width = null;
-  let height = null;
-  let optimizationResults = null;
-if (type === 'IMAGE') {
-  // Optimize image
-  try {
-    optimizationResults = await imageOptimizationService.optimizeImage(req.file.path, filename);
-    width = optimizationResults.original.width;
-    height = optimizationResults.original.height;
-
-    console.log(`🖼️ Image optimized: ${filename} - Original: ${optimizationResults.original.size} bytes`);
-  } catch (optimizationError) {
-    console.warn('⚠️ Image optimization failed:', optimizationError.message);
-  }
-
-  url = `/uploads/${filename}`;
-  finalFilename = filename;
-  originalUrl = null;
-
-
-} else if (type === 'VIDEO') {
-  // Always use original MP4, no HLS
-
-  try {
-    const metadata = await extractVideoMetadata(req.file.path);
-    duration = metadata.duration > 0 ? Math.round(metadata.duration) : null;
-    width = metadata.width > 0 ? metadata.width : null;
-    height = metadata.height > 0 ? metadata.height : null;
-  } catch (e) {
-    console.warn('⚠️ Failed to extract video metadata:', e.message);
-  }
-
-  // Generate video thumbnail
-  const baseName = path.parse(filename).name;
-  const thumbnailsDir = path.join(uploadsDir, 'thumbnails');
-  if (!fs.existsSync(thumbnailsDir)) {
-    fs.mkdirSync(thumbnailsDir, { recursive: true });
-  }
-  
-  const thumbnailPath = path.join(thumbnailsDir, `${baseName}_thumb.jpg`);
-  try {
-    const thumbnailGenerated = await generateVideoThumbnail(req.file.path, thumbnailPath);
-    if (thumbnailGenerated) {
-      console.log(`✅ Video thumbnail generated: ${baseName}_thumb.jpg`);
-    }
-  } catch (thumbnailError) {
-    console.warn('⚠️ Video thumbnail generation failed:', thumbnailError.message);
-  }
-
-  url = `/uploads/${filename}`;   // ✅ use filename here
-  finalFilename = filename;
-  originalUrl = null;
-}
-
-
- // Parse endDate if provided
   let endDate = null;
   if (req.body.endDate) {
     endDate = new Date(req.body.endDate);
@@ -374,6 +346,139 @@ if (type === 'IMAGE') {
     }
     if (endDate <= new Date()) {
       return res.status(400).json({ message: 'endDate must be in the future' });
+    }
+  }
+
+  const useS3 = s3Media.isS3MediaEnabled();
+  let filePathForProcessing = req.file.path;
+  if (useS3 && req.file.buffer) {
+    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    filePathForProcessing = path.join(os.tmpdir(), `signox-${Date.now()}-${safeName}`);
+    fs.writeFileSync(filePathForProcessing, req.file.buffer);
+  }
+
+  let url;
+  let originalUrl = null;
+  const finalFilename = filename;
+  let duration = null;
+  let width = null;
+  let height = null;
+  let optimizationResults = null;
+  let s3Key = null;
+  let s3ExtraKeys = [];
+
+  if (type === 'IMAGE') {
+    try {
+      optimizationResults = await imageOptimizationService.optimizeImage(
+        filePathForProcessing,
+        filename
+      );
+      width = optimizationResults.original.width;
+      height = optimizationResults.original.height;
+
+      console.log(
+        `🖼️ Image optimized: ${filename} - Original: ${optimizationResults.original.size} bytes`
+      );
+    } catch (optimizationError) {
+      console.warn('⚠️ Image optimization failed:', optimizationError.message);
+    }
+
+    if (useS3) {
+      const prefix = s3Media.getPrefix();
+      const mainKey = `${prefix}/${filename}`;
+      await s3Media.uploadFile(mainKey, filePathForProcessing, mimeType);
+      s3Key = mainKey;
+      const baseName = path.parse(filename).name;
+      const extra = [];
+
+      const uploadDerived = async (localPath, key) => {
+        if (localPath && fs.existsSync(localPath)) {
+          await s3Media.uploadFile(key, localPath, guessContentType(localPath));
+          extra.push(key);
+        }
+      };
+
+      if (optimizationResults?.thumbnail?.path) {
+        await uploadDerived(
+          optimizationResults.thumbnail.path,
+          `${prefix}/thumbnails/${baseName}_thumb.jpg`
+        );
+      }
+      if (optimizationResults?.preview?.path) {
+        await uploadDerived(
+          optimizationResults.preview.path,
+          `${prefix}/optimized/${baseName}_preview.jpg`
+        );
+      }
+      if (optimizationResults?.optimized?.jpeg?.path) {
+        await uploadDerived(
+          optimizationResults.optimized.jpeg.path,
+          `${prefix}/optimized/${baseName}_optimized.jpg`
+        );
+      }
+      if (optimizationResults?.optimized?.webp?.path) {
+        await uploadDerived(
+          optimizationResults.optimized.webp.path,
+          `${prefix}/optimized/${baseName}_optimized.webp`
+        );
+      }
+
+      s3ExtraKeys = extra;
+      url = s3Media.buildPublicUrl(mainKey);
+
+      safeUnlink(filePathForProcessing);
+      if (optimizationResults?.thumbnail?.path) safeUnlink(optimizationResults.thumbnail.path);
+      if (optimizationResults?.preview?.path) safeUnlink(optimizationResults.preview.path);
+      if (optimizationResults?.optimized?.jpeg?.path) safeUnlink(optimizationResults.optimized.jpeg.path);
+      if (optimizationResults?.optimized?.webp?.path) safeUnlink(optimizationResults.optimized.webp.path);
+    } else {
+      url = `/uploads/${filename}`;
+    }
+  } else if (type === 'VIDEO') {
+    try {
+      const metadata = await extractVideoMetadata(filePathForProcessing);
+      duration = metadata.duration > 0 ? Math.round(metadata.duration) : null;
+      width = metadata.width > 0 ? metadata.width : null;
+      height = metadata.height > 0 ? metadata.height : null;
+    } catch (e) {
+      console.warn('⚠️ Failed to extract video metadata:', e.message);
+    }
+
+    const baseName = path.parse(filename).name;
+    const thumbnailsDir = path.join(uploadsDir, 'thumbnails');
+    if (!fs.existsSync(thumbnailsDir)) {
+      fs.mkdirSync(thumbnailsDir, { recursive: true });
+    }
+
+    const thumbnailPath = path.join(thumbnailsDir, `${baseName}_thumb.jpg`);
+    try {
+      const thumbnailGenerated = await generateVideoThumbnail(
+        filePathForProcessing,
+        thumbnailPath
+      );
+      if (thumbnailGenerated) {
+        console.log(`✅ Video thumbnail generated: ${baseName}_thumb.jpg`);
+      }
+    } catch (thumbnailError) {
+      console.warn('⚠️ Video thumbnail generation failed:', thumbnailError.message);
+    }
+
+    if (useS3) {
+      const prefix = s3Media.getPrefix();
+      const mainKey = `${prefix}/${filename}`;
+      const thumbKey = `${prefix}/thumbnails/${baseName}_thumb.jpg`;
+      await s3Media.uploadFile(mainKey, filePathForProcessing, mimeType);
+      s3Key = mainKey;
+      if (fs.existsSync(thumbnailPath)) {
+        await s3Media.uploadFile(thumbKey, thumbnailPath, 'image/jpeg');
+        s3ExtraKeys = [thumbKey];
+      }
+      url = s3Media.buildPublicUrl(mainKey);
+
+      safeUnlink(filePathForProcessing);
+      safeUnlink(thumbnailPath);
+    } else {
+      url = `/uploads/${filename}`;
     }
   }
 
@@ -394,6 +499,8 @@ if (type === 'IMAGE') {
     type,
     url,
     originalUrl,
+    s3Key,
+    s3ExtraKeys,
     fileSize,
     mimeType,
     duration,
@@ -411,7 +518,9 @@ if (type === 'IMAGE') {
       filename: finalFilename,
       type,
       url,
-      originalUrl, 
+      originalUrl,
+      s3Key,
+      s3ExtraKeys,
       fileSize,
       mimeType,
       duration,
@@ -587,15 +696,25 @@ exports.listMedia = catchAsync(async (req, res) => {
   // Enrich media items with file metadata and thumbnail URLs
   const enrichedMedia = await Promise.all(media.map(async (item) => {
     try {
-      // Extract file path from URL
-      const urlPath = item.url.replace(/^\//, ''); // Remove leading slash
-      const filePath = path.join(__dirname, '../../public', urlPath);
-      
-      // Get thumbnail and preview URLs
       const thumbnailUrl = getThumbnailUrl(item);
       const previewUrl = getPreviewUrl(item);
-      
-      // Check if file exists and get metadata
+
+      const isRemote =
+        item.s3Key ||
+        (item.url && /^https?:\/\//i.test(String(item.url)));
+
+      if (isRemote) {
+        return {
+          ...item,
+          thumbnailUrl,
+          previewUrl,
+          fileSize: item.fileSize,
+        };
+      }
+
+      const urlPath = item.url.replace(/^\//, '');
+      const filePath = path.join(__dirname, '../../public', urlPath);
+
       if (fs.existsSync(filePath)) {
         const metadata = await getFileMetadata(filePath);
         return {
@@ -603,22 +722,21 @@ exports.listMedia = catchAsync(async (req, res) => {
           fileSize: metadata.fileSize,
           checksum: metadata.checksum,
           thumbnailUrl,
-          previewUrl
+          previewUrl,
         };
       }
-      
-      // If file doesn't exist, return item with thumbnail URLs only
+
       return {
         ...item,
         thumbnailUrl,
-        previewUrl
+        previewUrl,
       };
     } catch (error) {
       console.error(`Error enriching media ${item.id}:`, error.message);
       return {
         ...item,
         thumbnailUrl: getThumbnailUrl(item),
-        previewUrl: getPreviewUrl(item)
+        previewUrl: getPreviewUrl(item),
       };
     }
   }));
@@ -785,6 +903,14 @@ exports.deleteMedia = async (req, res) => {
     });
 
     console.log('✅ [DELETE DEBUG] Media record deleted from database');
+
+    let s3KeysToDelete = s3Media.keysFromMediaRecord(media);
+    if (s3Media.isS3MediaEnabled() && s3KeysToDelete.length === 0) {
+      s3KeysToDelete = s3Media.tryExtractKeysFromUrl(media.url);
+    }
+    if (s3Media.isS3MediaEnabled() && s3KeysToDelete.length > 0) {
+      await s3Media.deleteKeys(s3KeysToDelete);
+    }
 
     // Delete the file (or HLS directory) from filesystem (best-effort)
     if (media.url && media.url.startsWith('/uploads/')) {
@@ -1000,6 +1126,14 @@ exports.cleanupExpiredMedia = async () => {
         await prisma.media.delete({
           where: { id: media.id },
         });
+
+        let s3KeysToDelete = s3Media.keysFromMediaRecord(media);
+        if (s3Media.isS3MediaEnabled() && s3KeysToDelete.length === 0) {
+          s3KeysToDelete = s3Media.tryExtractKeysFromUrl(media.url);
+        }
+        if (s3Media.isS3MediaEnabled() && s3KeysToDelete.length > 0) {
+          await s3Media.deleteKeys(s3KeysToDelete);
+        }
 
         // Delete the file (or HLS directory) from filesystem
         if (media.url && media.url.startsWith('/uploads/')) {

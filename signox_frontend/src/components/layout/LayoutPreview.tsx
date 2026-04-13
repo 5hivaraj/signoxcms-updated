@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Play, Pause, RotateCcw } from 'lucide-react';
 import Hls from 'hls.js';
 import { ScrollingText } from '@/components/ui/scrolling-text';
+import { resolvePublicMediaUrl } from '@/lib/mediaUrl';
 
 /* -------------------- Types -------------------- */
 type MediaType = 'IMAGE' | 'VIDEO';
@@ -175,7 +176,7 @@ export function LayoutPreview({
   /* -------------------- HLS Setup -------------------- */
   const setupHlsVideo = useCallback(
     (video: HTMLVideoElement, src: string, key: string) => {
-      const fullUrl = `${publicBaseUrl}${src}`;
+      const fullUrl = resolvePublicMediaUrl(src, publicBaseUrl) ?? '';
       const isHls = src.endsWith('.m3u8');
 
       if (hlsRefs.current[key]) {
@@ -350,7 +351,7 @@ export function LayoutPreview({
                   >
                     {item.media.type === 'IMAGE' ? (
                       <img
-                        src={`${publicBaseUrl}${item.media.url}`}
+                        src={resolvePublicMediaUrl(item.media.url, publicBaseUrl) ?? ''}
                         className="w-full h-full"
                         style={{ objectFit: objectFitFromResizeMode(item.resizeMode) }}
                       />

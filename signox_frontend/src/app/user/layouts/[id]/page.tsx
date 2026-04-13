@@ -37,8 +37,10 @@ import { TextConfigDialog, TextConfig } from '@/components/layout/TextConfigDial
 import { ScrollingText } from '@/components/ui/scrolling-text';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
+import { resolvePublicMediaUrl } from '@/lib/mediaUrl';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const PUBLIC_BASE = API_URL.replace('/api', '');
 
 type Media = {
   id: string;
@@ -211,7 +213,7 @@ function SortableMediaItem({
 
   const fallbackMediaName = `Media ${item.mediaId.slice(0, 8)}`;
   const hasMedia = !!media;
-  const thumbnailUrl = hasMedia ? `${API_URL.replace('/api', '')}${media.url}` : '';
+  const thumbnailUrl = hasMedia ? (resolvePublicMediaUrl(media.url, PUBLIC_BASE) ?? '') : '';
   const isImage = media?.type === 'IMAGE';
   const orientation = item.orientation ?? 'LANDSCAPE';
   const resizeMode = item.resizeMode ?? 'FIT';
@@ -330,7 +332,7 @@ function AddToSectionDialog({
 
   if (!media) return null;
 
-  const thumbnailUrl = `${API_URL.replace('/api', '')}${media.url}`;
+  const thumbnailUrl = resolvePublicMediaUrl(media.url, PUBLIC_BASE) ?? '';
   const isImage = media.type === 'IMAGE';
   const fitClass = objectFitClass[resizeMode];
   const usePortraitFrame = orientation === 'PORTRAIT' || rotation === 90 || rotation === 270;
@@ -462,7 +464,7 @@ function DraggableMediaItem({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const thumbnailUrl = `${API_URL.replace('/api', '')}${media.url}`;
+  const thumbnailUrl = resolvePublicMediaUrl(media.url, PUBLIC_BASE) ?? '';
   const isImage = media.type === 'IMAGE';
 
   return (
@@ -1354,7 +1356,7 @@ export default function LayoutBuilderPage() {
             <div className="flex items-center gap-3 p-3 bg-white border-2 border-blue-500 rounded-lg shadow-lg">
               <div className="w-12 h-12 rounded overflow-hidden bg-gray-100">
                 {draggedMedia.type === 'IMAGE' ? (
-                  <img src={`${API_URL.replace('/api', '')}${draggedMedia.url}`} alt={draggedMedia.name} className="w-full h-full object-cover" />
+                  <img src={resolvePublicMediaUrl(draggedMedia.url, PUBLIC_BASE) ?? ''} alt={draggedMedia.name} className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gray-800">
                     <Video className="h-4 w-4 text-white" />

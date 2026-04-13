@@ -2,6 +2,21 @@
 //app.use('/api/auth', authLimiter);
 require('dotenv').config();
 
+try {
+  const { isS3MediaEnabled } = require('./services/s3-media.service');
+  if (isS3MediaEnabled()) {
+    console.log(
+      `☁️  CMS media: S3 (bucket=${process.env.AWS_S3_BUCKET}, prefix=${(process.env.AWS_S3_MEDIA_PREFIX || 'media').replace(/^\/+|\/+$/g, '')})`
+    );
+  } else {
+    console.log(
+      '💾 CMS media: local disk (public/uploads). Enable S3 with USE_S3_FOR_MEDIA=true and AWS_S3_BUCKET=...'
+    );
+  }
+} catch (e) {
+  console.warn('CMS media storage mode: could not read S3 config:', e.message);
+}
+
 // Set timezone to India (IST)
 process.env.TZ = process.env.TIMEZONE || 'Asia/Kolkata';
 
@@ -191,10 +206,10 @@ app.use(auditRequest);
        – keep this folder on the server as-is, or
        – copy/rsync public/uploads from a backup or old server when you migrate.
    • After deploy, restart Node (e.g. pm2 restart) so changes apply.
-   • AWS S3 in this project: used only for player-app binaries (APK/WGT download URLs)
-     when USE_S3_FOR_PLAYER_APPS=true — see playerApps.controller.js. CMS images/videos
-     from the dashboard are stored under public/uploads unless you manually store full
-     S3/CloudFront URLs in the database (then the app uses those URLs as-is).
+   • AWS S3: (1) Player-app APK/WGT signed URLs when USE_S3_FOR_PLAYER_APPS=true
+     (playerApps.controller.js). (2) CMS Media Library uploads when USE_S3_FOR_MEDIA=true
+     (same AWS_S3_BUCKET/region/credentials; objects under AWS_S3_MEDIA_PREFIX, default media/).
+     If both flags are off, CMS files stay under public/uploads and /uploads static above applies.
 ========================= */
 
 const uploadsStaticRoot = path.join(__dirname, '../public/uploads');
