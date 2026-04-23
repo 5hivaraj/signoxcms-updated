@@ -5,15 +5,24 @@ const bcrypt = require('bcryptjs');
  * POST /api/users
  * Role-aware user creation based on requester role.
  *
- * SUPER_ADMIN -> creates CLIENT_ADMIN + ClientProfile
- * CLIENT_ADMIN -> creates USER_ADMIN (linked via managedByClientAdminId)
+ * SUPER_ADMIN -> creates CLIENT_ADMIN + ClientProfile (no limits)
+ * CLIENT_ADMIN -> creates USER_ADMIN + UserAdminProfile (with limits)
  * USER_ADMIN -> creates STAFF (linked via createdByUserAdminId, requires staffRole)
  */
 exports.createUser = async (req, res) => {
   try {
     const requester = req.user;
-    const { email, password, companyName, maxDisplays, maxUsers, licenseExpiry, staffRole } =
-      req.body;
+    const { 
+      email, 
+      password, 
+      companyName, 
+      maxDisplays, 
+      maxUsers, 
+      maxStorageMB,
+      maxMonthlyUsageMB,
+      licenseExpiry, 
+      staffRole 
+    } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password required' });
@@ -27,7 +36,7 @@ exports.createUser = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     if (requester.role === 'SUPER_ADMIN') {
-      // Create CLIENT_ADMIN + ClientProfile
+      // Create CLIENT_ADMIN + ClientProfile (no limits at this level)
       if (!companyName) {
         return res.status(400).json({ message: 'Company name is required' });
       }
@@ -51,8 +60,6 @@ exports.createUser = async (req, res) => {
             clientAdminId: clientAdmin.id,
             clientId,
             companyName,
-            maxDisplays: Number.isFinite(Number(maxDisplays)) ? Number(maxDisplays) : 10,
-            maxUsers: Number.isFinite(Number(maxUsers)) ? Number(maxUsers) : 5,
             licenseExpiry: licenseExpiry ? new Date(licenseExpiry) : null,
             isActive: true,
             contactEmail: email,
@@ -75,28 +82,55 @@ exports.createUser = async (req, res) => {
     }
 
     if (requester.role === 'CLIENT_ADMIN') {
-      // Create USER_ADMIN under this client
-      const userAdmin = await prisma.user.create({
-        data: {
-          email,
-          password: hashedPassword,
-          role: 'USER_ADMIN',
-          isActive: true,
-          managedByClientAdminId: requester.id,
-        },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          isActive: true,
-          managedByClientAdminId: true,
-          createdAt: true,
-        },
+      // Create USER_ADMIN + UserAdminProfile with limits
+      const { 
+        companyName, 
+        contactNumber,
+        ...otherFields 
+      } = req.body;
+
+      const created = await prisma.$transaction(async (tx) => {
+        const userAdmin = await tx.user.create({
+          data: {
+            email,
+            password: hashedPassword,
+            role: 'USER_ADMIN',
+            isActive: true,
+            managedByClientAdminId: requester.id,
+          },
+        });
+
+        // Create UserAdminProfile with limits and company info
+        const profile = await tx.userAdminProfile.create({
+          data: {
+            userAdminId: userAdmin.id,
+            companyName: companyName || null,
+            contactNumber: contactNumber || null,
+            maxDisplays: Number.isFinite(Number(maxDisplays)) ? Number(maxDisplays) : 10,
+            maxUsers: Number.isFinite(Number(maxUsers)) ? Number(maxUsers) : 5,
+            maxStorageMB: Number.isFinite(Number(maxStorageMB)) ? Number(maxStorageMB) : 25,
+            maxMonthlyUsageMB: Number.isFinite(Number(maxMonthlyUsageMB)) ? Number(maxMonthlyUsageMB) : 150,
+            licenseExpiry: licenseExpiry ? new Date(licenseExpiry) : null,
+            isActive: true,
+          },
+        });
+
+        return { userAdmin, profile };
       });
 
       return res.status(201).json({
         message: 'User Admin created successfully',
-        user: userAdmin,
+        user: {
+          id: created.userAdmin.id,
+          email: created.userAdmin.email,
+          role: created.userAdmin.role,
+          isActive: created.userAdmin.isActive,
+          managedByClientAdminId: created.userAdmin.managedByClientAdminId,
+          userAdminProfile: {
+            ...created.profile,
+            monthlyUploadedBytes: Number(created.profile.monthlyUploadedBytes || 0)
+          },
+        },
       });
     }
 
@@ -155,12 +189,45 @@ exports.createUser = async (req, res) => {
 /**
  * GET /api/users
  * Returns only users managed by the requester, based on hierarchy.
+ * Supports query parameters for filtering.
  */
 exports.listUsers = async (req, res) => {
   try {
     const requester = req.user;
+    const { managedByClientAdminId, createdByUserAdminId } = req.query;
 
     if (requester.role === 'SUPER_ADMIN') {
+      // If managedByClientAdminId is provided, return USER_ADMIN users under that CLIENT_ADMIN
+      if (managedByClientAdminId) {
+        const userAdmins = await prisma.user.findMany({
+          where: {
+            role: 'USER_ADMIN',
+            managedByClientAdminId: managedByClientAdminId,
+          },
+          include: {
+            userAdminProfile: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        return res.json({
+          role: 'SUPER_ADMIN',
+          users: userAdmins.map((u) => ({
+            id: u.id,
+            email: u.email,
+            role: u.role,
+            isActive: u.isActive,
+            createdAt: u.createdAt,
+            managedByClientAdminId: u.managedByClientAdminId,
+            userAdminProfile: u.userAdminProfile ? {
+              ...u.userAdminProfile,
+              monthlyUploadedBytes: Number(u.userAdminProfile.monthlyUploadedBytes || 0)
+            } : null,
+          })),
+        });
+      }
+
+      // Default: return CLIENT_ADMIN users
       const clientAdmins = await prisma.user.findMany({
         where: { role: 'CLIENT_ADMIN' },
         include: {
@@ -177,33 +244,61 @@ exports.listUsers = async (req, res) => {
           role: u.role,
           isActive: u.isActive,
           createdAt: u.createdAt,
-          clientProfile: u.clientProfile ? {
-            ...u.clientProfile,
-            monthlyUploadedBytes: Number(u.clientProfile.monthlyUploadedBytes || 0)
-          } : null,
+          clientProfile: u.clientProfile,
         })),
       });
     }
 
     if (requester.role === 'CLIENT_ADMIN') {
+      // If createdByUserAdminId is provided, return STAFF users under that USER_ADMIN
+      if (createdByUserAdminId) {
+        const staff = await prisma.user.findMany({
+          where: {
+            role: 'STAFF',
+            createdByUserAdminId: createdByUserAdminId,
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            staffRole: true,
+            isActive: true,
+            createdAt: true,
+          },
+        });
+
+        return res.json({
+          role: 'CLIENT_ADMIN',
+          users: staff,
+        });
+      }
+
+      // Default: return USER_ADMIN users
       const userAdmins = await prisma.user.findMany({
         where: {
           role: 'USER_ADMIN',
           managedByClientAdminId: requester.id,
         },
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          isActive: true,
-          createdAt: true,
+        include: {
+          userAdminProfile: true,
         },
+        orderBy: { createdAt: 'desc' },
       });
 
       return res.json({
         role: 'CLIENT_ADMIN',
-        users: userAdmins,
+        users: userAdmins.map((u) => ({
+          id: u.id,
+          email: u.email,
+          role: u.role,
+          isActive: u.isActive,
+          createdAt: u.createdAt,
+          userAdminProfile: u.userAdminProfile ? {
+            ...u.userAdminProfile,
+            monthlyUploadedBytes: Number(u.userAdminProfile.monthlyUploadedBytes || 0)
+          } : null,
+        })),
       });
     }
 
@@ -238,10 +333,168 @@ exports.listUsers = async (req, res) => {
 };
 
 /**
+ * PUT /api/users/:id
+ * Role-aware user update based on requester role.
+ * 
+ * CLIENT_ADMIN -> updates USER_ADMIN + UserAdminProfile (with limits)
+ * USER_ADMIN -> updates STAFF (staffRole only)
+ */
+exports.updateUser = async (req, res) => {
+  try {
+    const requester = req.user;
+    const { id } = req.params;
+    const { 
+      email, 
+      companyName,
+      contactNumber,
+      maxDisplays, 
+      maxUsers, 
+      maxStorageMB,
+      maxMonthlyUsageMB,
+      licenseExpiry, 
+      staffRole,
+      isActive
+    } = req.body;
+
+    // Find the user to update
+    const userToUpdate = await prisma.user.findUnique({
+      where: { id },
+      include: {
+        userAdminProfile: true,
+        clientProfile: true,
+      },
+    });
+
+    if (!userToUpdate) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (requester.role === 'CLIENT_ADMIN') {
+      // CLIENT_ADMIN can only update USER_ADMIN users they manage
+      if (userToUpdate.role !== 'USER_ADMIN' || userToUpdate.managedByClientAdminId !== requester.id) {
+        return res.status(403).json({ message: 'You can only update User Admins you manage' });
+      }
+
+      // Check if email is being changed and if it's already taken
+      if (email && email !== userToUpdate.email) {
+        const existing = await prisma.user.findUnique({ where: { email } });
+        if (existing) {
+          return res.status(409).json({ message: 'Email already exists' });
+        }
+      }
+
+      const updated = await prisma.$transaction(async (tx) => {
+        // Update user basic info
+        const user = await tx.user.update({
+          where: { id },
+          data: {
+            ...(email && { email }),
+            ...(typeof isActive === 'boolean' && { isActive }),
+          },
+        });
+
+        // Update UserAdminProfile with limits
+        let profile = null;
+        if (userToUpdate.userAdminProfile) {
+          profile = await tx.userAdminProfile.update({
+            where: { userAdminId: id },
+            data: {
+              ...(companyName !== undefined && { companyName }),
+              ...(contactNumber !== undefined && { contactNumber }),
+              ...(maxDisplays !== undefined && { maxDisplays: Number(maxDisplays) }),
+              ...(maxUsers !== undefined && { maxUsers: Number(maxUsers) }),
+              ...(maxStorageMB !== undefined && { maxStorageMB: Number(maxStorageMB) }),
+              ...(maxMonthlyUsageMB !== undefined && { maxMonthlyUsageMB: Number(maxMonthlyUsageMB) }),
+              ...(licenseExpiry !== undefined && { 
+                licenseExpiry: licenseExpiry ? new Date(licenseExpiry) : null 
+              }),
+              ...(typeof isActive === 'boolean' && { isActive }),
+            },
+          });
+        }
+
+        return { user, profile };
+      });
+
+      return res.json({
+        message: 'User Admin updated successfully',
+        user: {
+          id: updated.user.id,
+          email: updated.user.email,
+          role: updated.user.role,
+          isActive: updated.user.isActive,
+          managedByClientAdminId: updated.user.managedByClientAdminId,
+          userAdminProfile: updated.profile ? {
+            ...updated.profile,
+            monthlyUploadedBytes: Number(updated.profile.monthlyUploadedBytes || 0)
+          } : null,
+        },
+      });
+    }
+
+    if (requester.role === 'USER_ADMIN') {
+      // USER_ADMIN can only update STAFF users they created
+      if (userToUpdate.role !== 'STAFF' || userToUpdate.createdByUserAdminId !== requester.id) {
+        return res.status(403).json({ message: 'You can only update Staff users you created' });
+      }
+
+      // Check if email is being changed and if it's already taken
+      if (email && email !== userToUpdate.email) {
+        const existing = await prisma.user.findUnique({ where: { email } });
+        if (existing) {
+          return res.status(409).json({ message: 'Email already exists' });
+        }
+      }
+
+      const allowedStaffRoles = [
+        'DISPLAY_MANAGER',
+        'BROADCAST_MANAGER',
+        'CONTENT_MANAGER',
+        'CMS_VIEWER',
+        'POP_MANAGER',
+      ];
+
+      if (staffRole && !allowedStaffRoles.includes(staffRole)) {
+        return res.status(400).json({ 
+          message: `Invalid staffRole. Allowed: ${allowedStaffRoles.join(', ')}` 
+        });
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id },
+        data: {
+          ...(email && { email }),
+          ...(staffRole && { staffRole }),
+          ...(typeof isActive === 'boolean' && { isActive }),
+        },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          staffRole: true,
+          isActive: true,
+          createdAt: true,
+        },
+      });
+
+      return res.json({
+        message: 'Staff user updated successfully',
+        user: updatedUser,
+      });
+    }
+
+    return res.status(403).json({ message: 'Insufficient permissions to update this user' });
+  } catch (error) {
+    console.error('Update User Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
  * DELETE /api/users/:id
  * Role-aware delete:
- * - SUPER_ADMIN -> suspends CLIENT_ADMIN (soft delete)
- * - CLIENT_ADMIN -> hard deletes USER_ADMIN (and cleans up dependent data)
+ * - SUPER_ADMIN -> NO LONGER CAN SUSPEND CLIENT_ADMIN (removed functionality)
+ * - CLIENT_ADMIN -> hard deletes USER_ADMIN (permanent deletion with data cleanup)
  * - USER_ADMIN -> hard deletes STAFF
  */
 exports.deleteUser = async (req, res) => {
@@ -253,7 +506,10 @@ exports.deleteUser = async (req, res) => {
 
     const target = await prisma.user.findUnique({
       where: { id },
-      include: { clientProfile: true },
+      include: { 
+        clientProfile: true,
+        userAdminProfile: true,
+      },
     });
 
     if (!target) {
@@ -261,26 +517,10 @@ exports.deleteUser = async (req, res) => {
     }
 
     if (requester.role === 'SUPER_ADMIN') {
-      if (target.role !== 'CLIENT_ADMIN') {
-        return res.status(403).json({ message: 'SUPER_ADMIN can only delete CLIENT_ADMIN users' });
-      }
-
-      // Soft delete client admin and deactivate client profile
-      await prisma.$transaction(async (tx) => {
-        await tx.user.update({
-          where: { id: target.id },
-          data: { isActive: false },
-        });
-
-        if (target.clientProfile) {
-          await tx.clientProfile.update({
-            where: { id: target.clientProfile.id },
-            data: { isActive: false },
-          });
-        }
+      // SUPER_ADMIN can no longer suspend CLIENT_ADMIN
+      return res.status(403).json({ 
+        message: 'Super Admin can no longer suspend Client Admins. This functionality has been removed.' 
       });
-
-      return res.json({ message: 'Client Admin suspended successfully' });
     }
 
     if (requester.role === 'CLIENT_ADMIN') {
@@ -290,7 +530,7 @@ exports.deleteUser = async (req, res) => {
           .json({ message: 'CLIENT_ADMIN can only delete their own USER_ADMIN users' });
       }
 
-      // Hard delete USER_ADMIN and related records.
+      // Hard delete USER_ADMIN and related records including UserAdminProfile.
       // Important: Displays belong to CLIENT_ADMIN; we only unassign them from the deleted USER_ADMIN.
       await prisma.$transaction(async (tx) => {
         // 1) Staff under this User Admin
@@ -377,7 +617,12 @@ exports.deleteUser = async (req, res) => {
         await tx.layout.deleteMany({ where: { createdById: { in: allUserIds } } });
         await tx.media.deleteMany({ where: { createdById: { in: allUserIds } } });
 
-        // 9) Delete staff users, then the user admin
+        // 9) Delete UserAdminProfile if exists
+        if (target.userAdminProfile) {
+          await tx.userAdminProfile.delete({ where: { id: target.userAdminProfile.id } });
+        }
+
+        // 10) Delete staff users, then the user admin
         if (staffIds.length > 0) {
           await tx.user.deleteMany({ where: { id: { in: staffIds } } });
         }
@@ -406,6 +651,94 @@ exports.deleteUser = async (req, res) => {
     return res.status(403).json({ message: 'Insufficient permissions to delete this user' });
   } catch (error) {
     console.error('Delete User Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * PATCH /api/users/:id/suspend
+ * Toggle suspension status for USER_ADMIN (CLIENT_ADMIN only)
+ */
+exports.toggleUserAdminSuspension = async (req, res) => {
+  try {
+    const requester = req.user;
+    const { id } = req.params;
+
+    if (!id) return res.status(400).json({ message: 'User ID is required' });
+
+    // Only CLIENT_ADMIN can suspend/reactivate USER_ADMIN
+    if (requester.role !== 'CLIENT_ADMIN') {
+      return res.status(403).json({ message: 'Only Client Admins can suspend/reactivate User Admins' });
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id },
+      include: { 
+        userAdminProfile: true,
+      },
+    });
+
+    if (!target) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (target.role !== 'USER_ADMIN' || target.managedByClientAdminId !== requester.id) {
+      return res.status(403).json({ message: 'You can only suspend/reactivate your own User Admins' });
+    }
+
+    const newStatus = !target.isActive;
+
+    // Toggle suspension status with cascade to staff
+    await prisma.$transaction(async (tx) => {
+      // 1) Update the USER_ADMIN status
+      await tx.user.update({
+        where: { id: target.id },
+        data: { isActive: newStatus },
+      });
+
+      // 2) Update UserAdminProfile status if exists
+      if (target.userAdminProfile) {
+        await tx.userAdminProfile.update({
+          where: { id: target.userAdminProfile.id },
+          data: { isActive: newStatus },
+        });
+      }
+
+      // 3) Update all STAFF under this USER_ADMIN
+      await tx.user.updateMany({
+        where: { 
+          role: 'STAFF', 
+          createdByUserAdminId: target.id 
+        },
+        data: { isActive: newStatus },
+      });
+
+      // 4) If suspending, unassign displays; if reactivating, leave displays unassigned (manual reassignment)
+      if (!newStatus) {
+        await tx.display.updateMany({
+          where: { managedByUserId: target.id, clientAdminId: requester.id },
+          data: {
+            playlistId: null,
+            layoutId: null,
+            activeLayoutId: null,
+            managedByUserId: null,
+          },
+        });
+      }
+    });
+
+    const action = newStatus ? 'reactivated' : 'suspended';
+    const staffMessage = newStatus 
+      ? 'All staff under this User Admin have also been reactivated.'
+      : 'All staff under this User Admin have also been suspended.';
+
+    return res.json({ 
+      message: `User Admin ${action} successfully. ${staffMessage}`,
+      isActive: newStatus
+    });
+
+  } catch (error) {
+    console.error('Toggle User Admin Suspension Error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -471,6 +804,7 @@ exports.getUserProfileSettings = async (req, res) => {
       where: { id: userId },
       include: {
         clientProfile: true,
+        userAdminProfile: true,
         managedByClientAdmin: {
           include: {
             clientProfile: true
@@ -478,6 +812,7 @@ exports.getUserProfileSettings = async (req, res) => {
         },
         createdByUserAdmin: {
           include: {
+            userAdminProfile: true,
             managedByClientAdmin: {
               include: {
                 clientProfile: true
@@ -531,6 +866,7 @@ exports.getUserProfile = async (req, res) => {
       where: { id: userId },
       include: {
         clientProfile: true,
+        userAdminProfile: true,
         managedByClientAdmin: {
           include: {
             clientProfile: true
@@ -538,6 +874,7 @@ exports.getUserProfile = async (req, res) => {
         },
         createdByUserAdmin: {
           include: {
+            userAdminProfile: true,
             managedByClientAdmin: {
               include: {
                 clientProfile: true
@@ -593,7 +930,12 @@ exports.getUserProfile = async (req, res) => {
     // Convert BigInt to number for JSON serialization
     const clientProfileForResponse = user.clientProfile ? {
       ...user.clientProfile,
-      monthlyUploadedBytes: Number(user.clientProfile.monthlyUploadedBytes || 0)
+      // monthlyUploadedBytes removed - now in userAdminProfile
+    } : null;
+
+    const userAdminProfileForResponse = user.userAdminProfile ? {
+      ...user.userAdminProfile,
+      monthlyUploadedBytes: Number(user.userAdminProfile.monthlyUploadedBytes || 0)
     } : null;
 
     res.json({
@@ -605,7 +947,8 @@ exports.getUserProfile = async (req, res) => {
         staffRole: user.staffRole,
         isActive: user.isActive,
         managedByClientAdminId: user.managedByClientAdminId,
-        clientProfile: clientProfileForResponse
+        clientProfile: clientProfileForResponse,
+        userAdminProfile: userAdminProfileForResponse
       },
       hierarchy: {
         companyName: companyName,
@@ -622,11 +965,19 @@ exports.getUserProfile = async (req, res) => {
 /**
  * PUT /api/users/profile/password
  * Update current user's password
+ * Restricted to SUPER_ADMIN and CLIENT_ADMIN roles only
  */
 exports.updatePassword = async (req, res) => {
   try {
     const userId = req.user.id;
     const { currentPassword, newPassword } = req.body;
+
+    // Check if user role is allowed to change password
+    if (req.user.role === 'USER_ADMIN' || req.user.role === 'STAFF') {
+      return res.status(403).json({ 
+        message: 'Password change is not allowed for your user role. Please contact your administrator.' 
+      });
+    }
 
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ message: 'Current password and new password are required' });
@@ -706,7 +1057,7 @@ exports.updateProfile = async (req, res) => {
 
 /**
  * GET /api/users/me/account
- * Get account information (for CLIENT_ADMIN)
+ * Get account information (for USER_ADMIN - limits are now at USER_ADMIN level)
  */
 exports.getAccountInfo = async (req, res) => {
   try {
@@ -714,7 +1065,12 @@ exports.getAccountInfo = async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
-        clientProfile: true
+        userAdminProfile: true,
+        managedByClientAdmin: {
+          include: {
+            clientProfile: true
+          }
+        }
       }
     });
 
@@ -722,34 +1078,39 @@ exports.getAccountInfo = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Only CLIENT_ADMIN has account info
-    if (user.role !== 'CLIENT_ADMIN' || !user.clientProfile) {
+    // Only USER_ADMIN has account info with limits now
+    if (user.role !== 'USER_ADMIN' || !user.userAdminProfile) {
       return res.status(403).json({ message: 'Account information not available for this user type' });
     }
 
     // Count current usage
     const [displayCount, userCount] = await Promise.all([
       prisma.display.count({
-        where: { clientAdminId: userId }
+        where: { managedByUserId: userId }
       }),
       prisma.user.count({
-        where: { managedByClientAdminId: userId }
+        where: { createdByUserAdminId: userId }
       })
     ]);
 
     // Calculate storage usage (simplified - you may want to implement actual storage calculation)
     const storageUsed = 0; // TODO: Implement actual storage calculation
 
+    // Get company name from parent CLIENT_ADMIN
+    const companyName = user.managedByClientAdmin?.clientProfile?.companyName || 'Unknown Company';
+
     res.json({
-      companyName: user.clientProfile.companyName,
-      maxDisplays: user.clientProfile.maxDisplays,
-      maxUsers: user.clientProfile.maxUsers,
-      maxStorageMB: user.clientProfile.maxStorageMB,
+      companyName: companyName,
+      maxDisplays: user.userAdminProfile.maxDisplays,
+      maxUsers: user.userAdminProfile.maxUsers,
+      maxStorageMB: user.userAdminProfile.maxStorageMB,
+      maxMonthlyUsageMB: user.userAdminProfile.maxMonthlyUsageMB,
       currentDisplays: displayCount,
       currentUsers: userCount,
       currentStorageMB: storageUsed,
-      licenseExpiry: user.clientProfile.licenseExpiry,
-      subscriptionStatus: user.clientProfile.isActive ? 'Active' : 'Inactive'
+      monthlyUploadedBytes: Number(user.userAdminProfile.monthlyUploadedBytes || 0),
+      licenseExpiry: user.userAdminProfile.licenseExpiry,
+      subscriptionStatus: user.userAdminProfile.isActive ? 'Active' : 'Inactive'
     });
   } catch (error) {
     console.error('Get Account Info Error:', error);

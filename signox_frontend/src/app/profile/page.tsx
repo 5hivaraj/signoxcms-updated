@@ -33,6 +33,17 @@ type UserProfile = {
   staffRole?: string;
   isActive: boolean;
   createdAt: string;
+  userAdminProfile?: {
+    companyName: string | null;
+    contactNumber: string | null;
+    maxDisplays: number;
+    maxUsers: number;
+    maxStorageMB: number;
+    maxMonthlyUsageMB: number;
+    licenseExpiry: string | null;
+    monthlyUploadedBytes: number;
+    isActive: boolean;
+  } | null;
 };
 
 export default function ProfilePage() {
@@ -221,83 +232,116 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
 
-          {/* Hierarchy Information */}
+          {/* Company Information for USER_ADMIN or Hierarchy Information for others */}
           <Card className="border-gray-200 shadow-lg hover:shadow-xl transition-shadow duration-300" data-aos="fade-up" data-aos-delay="100">
             <CardHeader className="bg-gradient-to-r from-gray-50 to-white">
               <CardTitle className="flex items-center gap-3 text-2xl">
                 <div className="bg-gradient-to-br from-purple-400 to-purple-600 p-3 rounded-xl">
                   <Building2 className="h-6 w-6 text-white" />
                 </div>
-                Organization Hierarchy
+                {profile?.role === 'USER_ADMIN' ? 'Company Information' : 'Organization Hierarchy'}
               </CardTitle>
               <CardDescription className="text-base">
-                Your position within the organization structure
+                {profile?.role === 'USER_ADMIN' 
+                  ? 'Your company details and information'
+                  : 'Your position within the organization structure'
+                }
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-6">
-              {hierarchy?.companyName && (
-                <div className="bg-gradient-to-br from-yellow-50 to-orange-50 p-4 rounded-xl border border-yellow-200">
-                  <Label className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Company</Label>
-                  <p className="text-lg font-bold text-gray-900">{hierarchy.companyName}</p>
-                </div>
-              )}
+              {profile?.role === 'USER_ADMIN' ? (
+                // Show company info for USER_ADMIN from their own profile
+                <>
+                  {profile.userAdminProfile?.companyName && (
+                    <div className="bg-gradient-to-br from-yellow-50 to-orange-50 p-4 rounded-xl border border-yellow-200">
+                      <Label className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Company Name</Label>
+                      <p className="text-lg font-bold text-gray-900">{profile.userAdminProfile.companyName}</p>
+                    </div>
+                  )}
+                  
+                  {profile.userAdminProfile?.contactNumber && (
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
+                      <Label className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Contact Number</Label>
+                      <p className="text-lg font-bold text-gray-900">{profile.userAdminProfile.contactNumber}</p>
+                    </div>
+                  )}
 
-              {hierarchy?.clientAdmin && (
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
-                  <Label className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">Client Administrator</Label>
-                  <div className="flex items-start gap-3 mt-2">
-                    <div className="bg-blue-500 p-2 rounded-lg">
-                      <Shield className="h-5 w-5 text-white" />
+                  {(!profile.userAdminProfile?.companyName && !profile.userAdminProfile?.contactNumber) && (
+                    <div className="text-center py-8 bg-gray-50 rounded-xl">
+                      <Building2 className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-sm text-gray-500">No company information available</p>
                     </div>
-                    <div>
-                      <p className="text-base font-bold text-gray-900">{hierarchy.clientAdmin.name}</p>
-                      <p className="text-sm text-gray-600 mt-1">{hierarchy.clientAdmin.email}</p>
+                  )}
+                </>
+              ) : (
+                // Show hierarchy for other roles
+                <>
+                  {hierarchy?.companyName && (
+                    <div className="bg-gradient-to-br from-yellow-50 to-orange-50 p-4 rounded-xl border border-yellow-200">
+                      <Label className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">Company</Label>
+                      <p className="text-lg font-bold text-gray-900">{hierarchy.companyName}</p>
                     </div>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              {hierarchy?.userAdmin && profile?.role === 'STAFF' && (
-                <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
-                  <Label className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">User Administrator</Label>
-                  <div className="flex items-start gap-3 mt-2">
-                    <div className="bg-green-500 p-2 rounded-lg">
-                      <UserCog className="h-5 w-5 text-white" />
+                  {hierarchy?.clientAdmin && (
+                    <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl border border-blue-200">
+                      <Label className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">Client Administrator</Label>
+                      <div className="flex items-start gap-3 mt-2">
+                        <div className="bg-blue-500 p-2 rounded-lg">
+                          <Shield className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-base font-bold text-gray-900">{hierarchy.clientAdmin.name}</p>
+                          <p className="text-sm text-gray-600 mt-1">{hierarchy.clientAdmin.email}</p>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-base font-bold text-gray-900">{hierarchy.userAdmin.email}</p>
-                      <p className="text-sm text-gray-600 mt-1">Your direct supervisor</p>
-                    </div>
-                  </div>
-                </div>
-              )}
+                  )}
 
-              {!hierarchy?.clientAdmin && !hierarchy?.userAdmin && (
-                <div className="text-center py-8 bg-gray-50 rounded-xl">
-                  <Building2 className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-sm text-gray-500">No hierarchy information available</p>
-                </div>
+                  {hierarchy?.userAdmin && profile?.role === 'STAFF' && (
+                    <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl border border-green-200">
+                      <Label className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-3">User Administrator</Label>
+                      <div className="flex items-start gap-3 mt-2">
+                        <div className="bg-green-500 p-2 rounded-lg">
+                          <UserCog className="h-5 w-5 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-base font-bold text-gray-900">{hierarchy.userAdmin.email}</p>
+                          <p className="text-sm text-gray-600 mt-1">Your direct supervisor</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!hierarchy?.clientAdmin && !hierarchy?.userAdmin && (
+                    <div className="text-center py-8 bg-gray-50 rounded-xl">
+                      <Building2 className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-sm text-gray-500">No hierarchy information available</p>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Password Change */}
-        <Card id="password" className="border-gray-200 shadow-lg" data-aos="fade-up" data-aos-delay="200">
-          <CardHeader className="bg-gradient-to-r from-gray-50 to-white">
-            <CardTitle className="flex items-center gap-3 text-2xl">
-              <div className="bg-gradient-to-br from-yellow-400 to-orange-500 p-3 rounded-xl">
-                <Lock className="h-6 w-6 text-white" />
-              </div>
-              Change Password
-            </CardTitle>
-            <CardDescription className="text-base">
-              Update your password to keep your account secure
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <form onSubmit={handlePasswordUpdate} className="space-y-6">
-              <div className="grid gap-6 md:grid-cols-3">
+        {/* Password Change - Only for SUPER_ADMIN and CLIENT_ADMIN */}
+        {profile && (profile.role === 'SUPER_ADMIN' || profile.role === 'CLIENT_ADMIN') && (
+          <Card id="password" className="border-gray-200 shadow-lg" data-aos="fade-up" data-aos-delay="200">
+            <CardHeader className="bg-gradient-to-r from-gray-50 to-white">
+              <CardTitle className="flex items-center gap-3 text-2xl">
+                <div className="bg-gradient-to-br from-yellow-400 to-orange-500 p-3 rounded-xl">
+                  <Lock className="h-6 w-6 text-white" />
+                </div>
+                Change Password
+              </CardTitle>
+              <CardDescription className="text-base">
+                Update your password to keep your account secure
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <form onSubmit={handlePasswordUpdate} className="space-y-6">
+                <div className="grid gap-6 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label htmlFor="currentPassword" className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                     <Key className="h-4 w-4" />
@@ -380,6 +424,7 @@ export default function ProfilePage() {
             </form>
           </CardContent>
         </Card>
+        )}
       </div>
     </DashboardLayout>
   );

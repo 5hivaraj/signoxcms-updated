@@ -72,6 +72,7 @@ exports.login = async (req, res) => {
       where: { email: email.toLowerCase().trim() },
      include: {
         clientProfile: true,
+        userAdminProfile: true,
         managedByClientAdmin: {
           include: {
             clientProfile: true,
@@ -79,6 +80,7 @@ exports.login = async (req, res) => {
         },
         createdByUserAdmin: {
           include: {
+            userAdminProfile: true,
             managedByClientAdmin: {
               include: {
                 clientProfile: true,
@@ -115,13 +117,23 @@ exports.login = async (req, res) => {
           return res.status(401).json({ message: 'Your organization license is suspended. Please contact support.' });
         }
         
-        // Check license expiry
-        if (user.managedByClientAdmin.clientProfile.licenseExpiry && 
-            new Date(user.managedByClientAdmin.clientProfile.licenseExpiry) < new Date()) {
-          console.log(`Login attempt failed: Parent license expired - ${email}`, { 
-            licenseExpiry: user.managedByClientAdmin.clientProfile.licenseExpiry 
+        // Note: License expiry is now managed at USER_ADMIN level, not CLIENT_ADMIN level
+      }
+
+      // Check USER_ADMIN's own profile and license
+      if (user.userAdminProfile) {
+        if (!user.userAdminProfile.isActive) {
+          console.log(`Login attempt failed: User Admin profile suspended - ${email}`);
+          return res.status(401).json({ message: 'Your account is suspended. Please contact support.' });
+        }
+        
+        // Check USER_ADMIN license expiry (this is where licenses are managed now)
+        if (user.userAdminProfile.licenseExpiry && 
+            new Date(user.userAdminProfile.licenseExpiry) < new Date()) {
+          console.log(`Login attempt failed: User Admin license expired - ${email}`, { 
+            licenseExpiry: user.userAdminProfile.licenseExpiry 
           });
-          return res.status(401).json({ message: 'Your organization license has expired. Please contact your administrator.' });
+          return res.status(401).json({ message: 'Your license has expired. Please contact your administrator to renew.' });
         }
       }
     }
@@ -132,6 +144,23 @@ exports.login = async (req, res) => {
       if (!user.createdByUserAdmin.isActive) {
         console.log(`Login attempt failed: Parent User Admin suspended - ${email}`);
         return res.status(401).json({ message: 'Your manager account is suspended. Please contact support.' });
+      }
+
+      // Check User Admin's profile and license
+      if (user.createdByUserAdmin.userAdminProfile) {
+        if (!user.createdByUserAdmin.userAdminProfile.isActive) {
+          console.log(`Login attempt failed: User Admin profile suspended (via Staff) - ${email}`);
+          return res.status(401).json({ message: 'Your manager account is suspended. Please contact support.' });
+        }
+        
+        // Check User Admin license expiry
+        if (user.createdByUserAdmin.userAdminProfile.licenseExpiry && 
+            new Date(user.createdByUserAdmin.userAdminProfile.licenseExpiry) < new Date()) {
+          console.log(`Login attempt failed: User Admin license expired (via Staff) - ${email}`, { 
+            licenseExpiry: user.createdByUserAdmin.userAdminProfile.licenseExpiry 
+          });
+          return res.status(401).json({ message: 'Your manager license has expired. Please contact your administrator.' });
+        }
       }
 
       // Check Client Admin status
@@ -148,13 +177,22 @@ exports.login = async (req, res) => {
             return res.status(401).json({ message: 'Your organization license is suspended. Please contact support.' });
           }
           
-          // Check license expiry
-          if (user.createdByUserAdmin.managedByClientAdmin.clientProfile.licenseExpiry && 
-              new Date(user.createdByUserAdmin.managedByClientAdmin.clientProfile.licenseExpiry) < new Date()) {
-            console.log(`Login attempt failed: Organization license expired (via Staff) - ${email}`, { 
-              licenseExpiry: user.createdByUserAdmin.managedByClientAdmin.clientProfile.licenseExpiry 
+          // Note: License expiry is now managed at USER_ADMIN level, not CLIENT_ADMIN level
+        }
+
+        // Check USER_ADMIN license expiry (STAFF inherits from their USER_ADMIN)
+        if (user.createdByUserAdmin.userAdminProfile) {
+          if (!user.createdByUserAdmin.userAdminProfile.isActive) {
+            console.log(`Login attempt failed: User Admin profile suspended (via Staff) - ${email}`);
+            return res.status(401).json({ message: 'Your User Admin account is suspended. Please contact your administrator.' });
+          }
+
+          if (user.createdByUserAdmin.userAdminProfile.licenseExpiry && 
+              new Date(user.createdByUserAdmin.userAdminProfile.licenseExpiry) < new Date()) {
+            console.log(`Login attempt failed: User Admin license expired (via Staff) - ${email}`, { 
+              licenseExpiry: user.createdByUserAdmin.userAdminProfile.licenseExpiry 
             });
-            return res.status(401).json({ message: 'Your organization license has expired. Please contact your administrator.' });
+            return res.status(401).json({ message: 'Your User Admin license has expired. Please contact your administrator.' });
           }
         }
       }
@@ -167,11 +205,8 @@ exports.login = async (req, res) => {
         return res.status(401).json({ message: 'Your organization license is suspended. Please contact support.' });
       }
       
-      // Check license expiry
-      if (user.clientProfile.licenseExpiry && new Date(user.clientProfile.licenseExpiry) < new Date()) {
-        console.log(`Login attempt failed: License expired - ${email}`, { licenseExpiry: user.clientProfile.licenseExpiry });
-        return res.status(401).json({ message: 'Your license has expired. Please renew to continue.' });
-      }
+      // Note: License expiry is now managed at USER_ADMIN level, not CLIENT_ADMIN level
+      // CLIENT_ADMIN doesn't have individual license expiry anymore
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
@@ -200,6 +235,7 @@ exports.login = async (req, res) => {
       where: { id: user.id },
       include: {
         clientProfile: true,
+        userAdminProfile: true,
       },
     });
 
@@ -211,7 +247,12 @@ exports.login = async (req, res) => {
     // Convert BigInt to number for JSON serialization
     const clientProfileForResponse = userResponse.clientProfile ? {
       ...userResponse.clientProfile,
-      monthlyUploadedBytes: Number(userResponse.clientProfile.monthlyUploadedBytes || 0)
+      // monthlyUploadedBytes removed - now in userAdminProfile
+    } : null;
+
+    const userAdminProfileForResponse = userResponse.userAdminProfile ? {
+      ...userResponse.userAdminProfile,
+      monthlyUploadedBytes: Number(userResponse.userAdminProfile.monthlyUploadedBytes || 0)
     } : null;
     
     return res.json({
@@ -223,6 +264,7 @@ exports.login = async (req, res) => {
         staffRole: userResponse.staffRole,
         isActive: userResponse.isActive,
         clientProfile: clientProfileForResponse,
+        userAdminProfile: userAdminProfileForResponse,
       },
     });
   } catch (error) {
@@ -249,6 +291,7 @@ exports.me = async (req, res) => {
       where: { id: req.user.id },
       include: {
         clientProfile: true,
+        userAdminProfile: true,
       },
     });
 
@@ -259,7 +302,12 @@ exports.me = async (req, res) => {
     // Convert BigInt to number for JSON serialization
     const clientProfileForResponse = user.clientProfile ? {
       ...user.clientProfile,
-      monthlyUploadedBytes: Number(user.clientProfile.monthlyUploadedBytes || 0)
+      // monthlyUploadedBytes removed - now in userAdminProfile
+    } : null;
+
+    const userAdminProfileForResponse = user.userAdminProfile ? {
+      ...user.userAdminProfile,
+      monthlyUploadedBytes: Number(user.userAdminProfile.monthlyUploadedBytes || 0)
     } : null;
 
     res.json({
@@ -270,6 +318,7 @@ exports.me = async (req, res) => {
         staffRole: user.staffRole,
         isActive: user.isActive,
         clientProfile: clientProfileForResponse,
+        userAdminProfile: userAdminProfileForResponse,
       },
     });
   } catch (error) {

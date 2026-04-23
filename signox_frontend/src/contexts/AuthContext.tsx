@@ -25,6 +25,16 @@ interface User {
     licenseExpiry?: string;
     companyName?: string;
   };
+
+  userAdminProfile?: {
+    maxDisplays: number;
+    maxUsers: number;
+    maxStorageMB: number;
+    maxMonthlyUsageMB: number;
+    monthlyUploadedBytes: number;
+    licenseExpiry?: string;
+    isActive: boolean;
+  };
 }
 
 

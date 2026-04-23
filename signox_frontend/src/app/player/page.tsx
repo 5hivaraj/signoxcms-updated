@@ -486,35 +486,43 @@ export default function PlayerPage() {
     }
 
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 to-black text-white">
-        <div className="text-center space-y-6">
-          <div className="space-y-4">
-            <div className="inline-flex items-center justify-center mb-4">
-              <div className="h-4 w-4 animate-pulse rounded-full bg-green-400 shadow-lg shadow-green-400/50"></div>
-            </div>
-            <div className="inline-flex items-center gap-3 mb-4">
-              <div className="rounded-xl bg-gradient-to-br from-yellow-400 to-orange-500 p-3 shadow-2xl">
-                <svg className="h-10 w-10 text-white" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z"/>
-                </svg>
+      <div className="flex min-h-screen items-center justify-center bg-black text-white">
+        <div className="flex items-center justify-center w-full h-full">
+          {/* Try to load ArhamWorld logo first, fallback to text */}
+          <div className="text-center space-y-6">
+            <img 
+              src="/arhamworld-logo.png" 
+              alt="ArhamWorld Group of Companies" 
+              className="max-w-[80vw] max-h-[60vh] object-contain mx-auto"
+              style={{ 
+                filter: 'drop-shadow(0 0 20px rgba(255, 255, 255, 0.1))'
+              }}
+              onError={(e) => {
+                // Hide image and show text fallback
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                const textFallback = target.nextElementSibling as HTMLElement;
+                if (textFallback) {
+                  textFallback.style.display = 'block';
+                }
+              }}
+            />
+            {/* Text fallback - hidden by default, shown if image fails */}
+            <div className="hidden space-y-4" style={{ display: 'none' }}>
+              <div className="space-y-2">
+                <h1 className="text-8xl font-bold bg-gradient-to-r from-blue-400 to-green-400 bg-clip-text text-transparent">
+                  Arham<span className="text-green-400">World</span>
+                </h1>
+                <p className="text-2xl text-gray-400 font-light tracking-wide">
+                  Group of Companies
+                </p>
+              </div>
+              <div className="flex items-center justify-center space-x-4 mt-8">
+                <div className="w-16 h-1 bg-gradient-to-r from-blue-400 to-green-400 rounded-full"></div>
+                <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
+                <div className="w-16 h-1 bg-gradient-to-r from-green-400 to-blue-400 rounded-full"></div>
               </div>
             </div>
-            <h1 className="text-5xl font-black bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">System Online</h1>
-            <p className="text-xl text-gray-400 font-semibold">Ready to receive content</p>
-          </div>
-
-          <div className="mt-8 text-sm text-gray-500 font-medium">
-            <p>Display ID: {displayId.slice(-8)}</p>
-          </div>
-
-          {/* Reset/Unpair Button */}
-          <div className="mt-8">
-            <button
-              onClick={handleReset}
-              className="rounded-xl bg-gray-800 px-8 py-3 text-sm text-gray-300 hover:bg-gray-700 transition-all hover:shadow-lg font-medium"
-            >
-              Reset / Unpair
-            </button>
           </div>
         </div>
       </div>

@@ -354,23 +354,38 @@ exports.pairDisplay = async (req, res) => {
 /**
  * GET /api/displays
  * Get all displays (filtered by user role)
+ * Supports query parameters for filtering.
  */
 exports.getDisplays = async (req, res) => {
   try {
     const user = req.user;
+    const { clientAdminId, managedByUserId } = req.query;
     let displays;
 
     // Clean up orphaned displays before fetching (displays in pairing mode for more than 24 hours)
     await cleanupOrphanedDisplays();
 
     if (user.role === 'SUPER_ADMIN') {
-      // Super Admin sees only displays that are properly paired and associated with clients
+      // Build where clause based on query parameters
+      let whereClause = {
+        isPaired: true,                    // Only paired displays
+        clientAdminId: { not: null },      // Must have a client admin
+        managedByUserId: { not: null },    // Must have a managing user
+      };
+
+      // If clientAdminId is provided, filter by it
+      if (clientAdminId) {
+        whereClause.clientAdminId = clientAdminId;
+      }
+
+      // If managedByUserId is provided, filter by it
+      if (managedByUserId) {
+        whereClause.managedByUserId = managedByUserId;
+      }
+
+      // Super Admin sees displays based on filters or all properly paired displays
       displays = await prisma.display.findMany({
-        where: {
-          isPaired: true,                    // Only paired displays
-          clientAdminId: { not: null },      // Must have a client admin
-          managedByUserId: { not: null },    // Must have a managing user
-        },
+        where: whereClause,
         orderBy: { createdAt: 'desc' },
         include: {
           playlist: {
@@ -409,12 +424,20 @@ exports.getDisplays = async (req, res) => {
         },
       });
     } else if (user.role === 'CLIENT_ADMIN') {
+      // Build where clause for CLIENT_ADMIN
+      let whereClause = {
+        clientAdminId: user.id,
+        isPaired: true,                    // Only paired displays
+      };
+
+      // If managedByUserId is provided, filter by it (must be under this CLIENT_ADMIN)
+      if (managedByUserId) {
+        whereClause.managedByUserId = managedByUserId;
+      }
+
       // Client Admin sees only paired displays in their organization
       displays = await prisma.display.findMany({
-        where: {
-          clientAdminId: user.id,
-          isPaired: true,                    // Only paired displays
-        },
+        where: whereClause,
         orderBy: { createdAt: 'desc' },
         include: {
           playlist: {

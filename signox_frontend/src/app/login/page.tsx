@@ -14,9 +14,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { login } = useAuth();
 
   useEffect(() => {
+    setMounted(true);
     AOS.init({
       duration: 1000,
       once: true,
@@ -39,6 +41,26 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  // Calculate disabled state for inputs (only during loading)
+  const inputsDisabled = loading;
+  
+  // Calculate disabled state for submit button (loading or empty fields)
+  const submitDisabled = loading || !email.trim() || !password.trim();
+
+  // Prevent hydration mismatch by not rendering form until mounted
+  if (!mounted) {
+    return (
+      <div className="flex flex-col lg:flex-row min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
+        <div className="w-full flex items-center justify-center">
+          <div className="text-white text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <p>Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const features = [
     {
@@ -249,7 +271,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  disabled={loading}
+                  disabled={inputsDisabled}
                   className="h-12 sm:h-14 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:border-yellow-400 focus:ring-yellow-400 rounded-xl text-base sm:text-lg"
                 />
               </div>
@@ -263,7 +285,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  disabled={loading}
+                  disabled={inputsDisabled}
                   className="h-12 sm:h-14 bg-white/10 border-white/20 text-white placeholder:text-gray-400 focus:border-yellow-400 focus:ring-yellow-400 rounded-xl text-base sm:text-lg"
                 />
               </div>
@@ -278,7 +300,7 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 className="w-full h-12 sm:h-14 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black font-bold text-base sm:text-lg rounded-xl shadow-lg hover:shadow-yellow-500/50 transition-all duration-300 hover:scale-105"
-                disabled={loading || !email || !password}
+                disabled={submitDisabled}
               >
                 {loading ? (
                   <><Loader2 className="mr-2 h-5 w-5 sm:h-6 sm:w-6 animate-spin" />Signing in...</>

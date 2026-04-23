@@ -35,7 +35,7 @@ async function generateClientId() {
 
 /**
  * POST /api/users/client-admin
- * Create a new Client Admin + linked ClientProfile (commercial constraints)
+ * Create a new Client Admin + linked ClientProfile (no limits, no license expiry - managed at USER_ADMIN level)
  */
 exports.createClientAdmin = async (req, res) => {
   try {
@@ -44,11 +44,6 @@ exports.createClientAdmin = async (req, res) => {
       email,
       password,
       companyName,
-      maxDisplays,
-      maxUsers,
-      maxStorageMB,
-      maxMonthlyUsageMB,
-      licenseExpiry,
     } = req.body;
 
     if (!email || !password) {
@@ -83,11 +78,6 @@ exports.createClientAdmin = async (req, res) => {
           clientAdminId: user.id,
           clientId,
           companyName,
-          maxDisplays: Number.isFinite(Number(maxDisplays)) ? Number(maxDisplays) : 10,
-          maxUsers: Number.isFinite(Number(maxUsers)) ? Number(maxUsers) : 5,
-          maxStorageMB: Number.isFinite(Number(maxStorageMB)) ? Number(maxStorageMB) : 25,
-          maxMonthlyUsageMB: Number.isFinite(Number(maxMonthlyUsageMB)) ? Number(maxMonthlyUsageMB) : 150,
-          licenseExpiry: licenseExpiry ? new Date(licenseExpiry) : null,
           isActive: true,
           contactEmail: email,
         },
@@ -96,12 +86,6 @@ exports.createClientAdmin = async (req, res) => {
       return { user, profile };
     });
 
-    // Convert BigInt to number for JSON serialization
-    const profileForResponse = {
-      ...created.profile,
-      monthlyUploadedBytes: Number(created.profile.monthlyUploadedBytes || 0)
-    };
-
     res.status(201).json({
       message: 'Client Admin created',
       clientAdmin: {
@@ -109,7 +93,7 @@ exports.createClientAdmin = async (req, res) => {
         email: created.user.email,
         role: created.user.role,
         isActive: created.user.isActive,
-        clientProfile: profileForResponse,
+        clientProfile: created.profile,
       },
       // keep name in response for UI even though not stored
       name: name || null,
@@ -149,27 +133,12 @@ exports.listClientAdmins = async (req, res) => {
           // Check if profile is inactive
           if (!u.clientProfile.isActive) {
             licenseStatus = 'suspended';
-          } 
-          // Check if license has expired
-          else if (u.clientProfile.licenseExpiry) {
-            const expiryDate = new Date(u.clientProfile.licenseExpiry);
-            isExpired = expiryDate < now;
-            daysUntilExpiry = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
-
-            if (isExpired) {
-              licenseStatus = 'expired';
-            } else if (daysUntilExpiry <= 7) {
-              licenseStatus = 'expiring_soon';
-            }
           }
         }
 
-        // Convert BigInt fields to numbers for JSON serialization
+        // Convert BigInt fields to numbers for JSON serialization (if any exist)
         const clientProfile = u.clientProfile ? {
-          ...u.clientProfile,
-          monthlyUploadedBytes: u.clientProfile.monthlyUploadedBytes 
-            ? Number(u.clientProfile.monthlyUploadedBytes) 
-            : 0
+          ...u.clientProfile
         } : null;
 
         return {
@@ -198,131 +167,24 @@ exports.listClientAdmins = async (req, res) => {
 
 /**
  * PATCH /api/users/client-admins/:id/status
- * Toggle isActive for a tenant (suspend/activate)
- * Cascades to all User Admins and Staff under this Client Admin
+ * REMOVED: Super Admin can no longer suspend Client Admins
+ * This functionality has been removed as per new requirements
  */
 exports.toggleClientAdminStatus = async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    console.log('🔄 Toggle Client Admin Status Request:', {
-      clientAdminId: id,
-      requestedBy: req.user?.email,
-      requestedByRole: req.user?.role,
-      requestedById: req.user?.id
-    });
-
-    if (!id) {
-      console.error('❌ Toggle status: No client admin ID provided');
-      return res.status(400).json({ message: 'Client Admin ID required' });
-    }
-
-    // Prevent super admin from suspending themselves (if they somehow have a client profile)
-    if (id === req.user.id) {
-      console.error('❌ Toggle status: Cannot suspend yourself');
-      return res.status(400).json({ message: 'Cannot suspend your own account' });
-    }
-
-    const user = await prisma.user.findUnique({ where: { id } });
-    if (!user || user.role !== 'CLIENT_ADMIN') {
-      console.error('❌ Toggle status: Client Admin not found', { id });
-      return res.status(404).json({ message: 'Client Admin not found' });
-    }
-
-    const newStatus = !user.isActive;
-    console.log(`🔄 Changing status from ${user.isActive} to ${newStatus} for ${user.email}`);
-
-    // Use transaction to update Client Admin and all related users
-    await prisma.$transaction(async (tx) => {
-      // 1. Update the Client Admin
-      await tx.user.update({
-        where: { id },
-        data: { isActive: newStatus },
-      });
-
-      // 2. Update Client Profile
-      const profile = await tx.clientProfile.findUnique({
-        where: { clientAdminId: id },
-      });
-
-      if (profile) {
-        await tx.clientProfile.update({
-          where: { id: profile.id },
-          data: { isActive: newStatus },
-        });
-      }
-
-      // 3. Update all User Admins managed by this Client Admin
-      await tx.user.updateMany({
-        where: {
-          role: 'USER_ADMIN',
-          managedByClientAdminId: id,
-        },
-        data: { isActive: newStatus },
-      });
-
-      // 4. Find all User Admins under this Client Admin
-      const userAdmins = await tx.user.findMany({
-        where: {
-          role: 'USER_ADMIN',
-          managedByClientAdminId: id,
-        },
-        select: { id: true },
-      });
-
-      // 5. Update all Staff created by those User Admins
-      if (userAdmins.length > 0) {
-        const userAdminIds = userAdmins.map(ua => ua.id);
-        await tx.user.updateMany({
-          where: {
-            role: 'STAFF',
-            createdByUserAdminId: { in: userAdminIds },
-          },
-          data: { isActive: newStatus },
-        });
-      }
-    });
-
-    // Fetch updated data to return
-    const updated = await prisma.user.findUnique({
-      where: { id },
-      include: { clientProfile: true },
-    });
-
-    console.log(`✅ Client Admin ${newStatus ? 'activated' : 'suspended'}: ${updated.email}`);
-    console.log(`   Cascaded status to all User Admins and Staff under this client`);
-
-    res.json({
-      clientAdmin: {
-        id: updated.id,
-        email: updated.email,
-        role: updated.role,
-        isActive: updated.isActive,
-        createdAt: updated.createdAt,
-        clientProfile: updated.clientProfile,
-      },
-      message: `Client Admin ${newStatus ? 'activated' : 'suspended'} successfully. All related users have been ${newStatus ? 'activated' : 'suspended'}.`,
-    });
-  } catch (error) {
-    console.error('❌ Toggle Client Admin Status Error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
+  return res.status(403).json({ 
+    message: 'Client Admin suspension has been disabled. Only Client Admins can manage their User Admins.' 
+  });
 };
 
 /**
  * PUT /api/users/client-admins/:id
- * Update client admin limits and settings
+ * Update client admin settings (no license expiry - managed at USER_ADMIN level)
  */
 exports.updateClientAdmin = async (req, res) => {
   try {
     const { id } = req.params;
     const {
       companyName,
-      maxDisplays,
-      maxUsers,
-      maxStorageMB,
-      maxMonthlyUsageMB,
-      licenseExpiry,
       contactEmail,
       contactPhone,
     } = req.body;
@@ -343,44 +205,11 @@ exports.updateClientAdmin = async (req, res) => {
       return res.status(404).json({ message: 'Client profile not found' });
     }
 
-    // Check if reducing maxDisplays would violate current usage
-    if (maxDisplays !== undefined) {
-      const currentDisplayCount = await prisma.display.count({
-        where: { clientAdminId: id }
-      });
-
-      if (Number(maxDisplays) < currentDisplayCount) {
-        return res.status(400).json({ 
-          message: `Cannot reduce display limit to ${maxDisplays}. Client currently has ${currentDisplayCount} displays. Please remove displays first.` 
-        });
-      }
-    }
-
-    // Check if reducing maxUsers would violate current usage
-    if (maxUsers !== undefined) {
-      const currentUserCount = await prisma.user.count({
-        where: { managedByClientAdminId: id }
-      });
-
-      if (Number(maxUsers) < currentUserCount) {
-        return res.status(400).json({ 
-          message: `Cannot reduce user limit to ${maxUsers}. Client currently has ${currentUserCount} users. Please remove users first.` 
-        });
-      }
-    }
-
     // Update the client profile
     const updatedProfile = await prisma.clientProfile.update({
       where: { clientAdminId: id },
       data: {
         ...(companyName !== undefined && { companyName }),
-        ...(maxDisplays !== undefined && { maxDisplays: Number(maxDisplays) }),
-        ...(maxUsers !== undefined && { maxUsers: Number(maxUsers) }),
-        ...(maxStorageMB !== undefined && { maxStorageMB: Number(maxStorageMB) }),
-        ...(maxMonthlyUsageMB !== undefined && { maxMonthlyUsageMB: Number(maxMonthlyUsageMB) }),
-        ...(licenseExpiry !== undefined && { 
-          licenseExpiry: licenseExpiry ? new Date(licenseExpiry) : null 
-        }),
         ...(contactEmail !== undefined && { contactEmail }),
         ...(contactPhone !== undefined && { contactPhone }),
       },
@@ -392,12 +221,6 @@ exports.updateClientAdmin = async (req, res) => {
       include: { clientProfile: true }
     });
 
-    // Convert BigInt to number for JSON serialization
-    const profileForResponse = updatedClientAdmin.clientProfile ? {
-      ...updatedClientAdmin.clientProfile,
-      monthlyUploadedBytes: Number(updatedClientAdmin.clientProfile.monthlyUploadedBytes || 0)
-    } : null;
-
     res.json({
       message: 'Client Admin updated successfully',
       clientAdmin: {
@@ -406,7 +229,7 @@ exports.updateClientAdmin = async (req, res) => {
         role: updatedClientAdmin.role,
         isActive: updatedClientAdmin.isActive,
         createdAt: updatedClientAdmin.createdAt,
-        clientProfile: profileForResponse,
+        clientProfile: updatedClientAdmin.clientProfile,
       },
     });
   } catch (error) {
@@ -597,28 +420,35 @@ exports.deleteClientAdmin = async (req, res) => {
         where: { clientAdminId: id }
       });
 
-      // 14. Delete STAFF users first (to avoid relation constraint violation)
+      // 14. Delete UserAdminProfile for USER_ADMIN users
+      if (userAdminIds.length > 0) {
+        await tx.userAdminProfile.deleteMany({
+          where: { userAdminId: { in: userAdminIds } }
+        });
+      }
+
+      // 15. Delete STAFF users first (to avoid relation constraint violation)
       if (staffUserIds.length > 0) {
         await tx.user.deleteMany({
           where: { id: { in: staffUserIds } }
         });
       }
 
-      // 15. Delete USER_ADMIN users (after staff are deleted)
+      // 16. Delete USER_ADMIN users (after staff are deleted and profiles are deleted)
       if (userAdminIds.length > 0) {
         await tx.user.deleteMany({
           where: { id: { in: userAdminIds } }
         });
       }
 
-      // 16. Delete the client profile
+      // 17. Delete the client profile
       if (user.clientProfile) {
         await tx.clientProfile.delete({
           where: { clientAdminId: id }
         });
       }
 
-      // 17. Finally, delete the client admin user
+      // 18. Finally, delete the client admin user
       await tx.user.delete({
         where: { id }
       });

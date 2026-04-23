@@ -16,7 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, ShieldAlert, Key, Loader2, Users } from 'lucide-react';
+import { Plus, Trash2, ShieldAlert, Key, Loader2, Users, Edit, Eye, Building2, Phone, Calendar, HardDrive, Upload, UserCheck, Power, UserX } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -39,7 +39,17 @@ export default function ClientUsersPage() {
   
   // Form State
   const [isOpen, setIsOpen] = useState(false);
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [formData, setFormData] = useState({ 
+    email: '', 
+    password: '',
+    companyName: '',
+    contactNumber: '',
+    maxDisplays: '10',
+    maxUsers: '5',
+    maxStorageMB: '25',
+    maxMonthlyUsageMB: '150',
+    licenseExpiry: ''
+  });
 
   // Password Reset State
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
@@ -47,6 +57,30 @@ export default function ClientUsersPage() {
   const [resetUserEmail, setResetUserEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [resetting, setResetting] = useState(false);
+
+  // Suspend/Reactivate State
+  const [suspending, setSuspending] = useState(false);
+
+  // Edit User State
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editUserId, setEditUserId] = useState('');
+  const [editFormData, setEditFormData] = useState({
+    email: '',
+    companyName: '',
+    contactNumber: '',
+    maxDisplays: '10',
+    maxUsers: '5',
+    maxStorageMB: '25',
+    maxMonthlyUsageMB: '150',
+    licenseExpiry: '',
+    isActive: true
+  });
+
+  // User Details View State
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [userStats, setUserStats] = useState<any>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
 
   // 1. Fetch Users on Mount
   const fetchUsers = async () => {
@@ -93,10 +127,30 @@ export default function ClientUsersPage() {
     e.preventDefault();
     try {
       // Calls POST /api/users (Backend handles linking logic)
-      await api.post('/users', formData);
+      await api.post('/users', {
+        email: formData.email,
+        password: formData.password,
+        companyName: formData.companyName,
+        contactNumber: formData.contactNumber,
+        maxDisplays: Number(formData.maxDisplays || 10),
+        maxUsers: Number(formData.maxUsers || 5),
+        maxStorageMB: Number(formData.maxStorageMB || 25),
+        maxMonthlyUsageMB: Number(formData.maxMonthlyUsageMB || 150),
+        licenseExpiry: formData.licenseExpiry || null,
+      });
       
       setIsOpen(false);
-      setFormData({ email: '', password: '' });
+      setFormData({ 
+        email: '', 
+        password: '',
+        companyName: '',
+        contactNumber: '',
+        maxDisplays: '10',
+        maxUsers: '5',
+        maxStorageMB: '25',
+        maxMonthlyUsageMB: '150',
+        licenseExpiry: ''
+      });
       fetchUsers(); // Refresh list
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to create user');
@@ -153,6 +207,117 @@ export default function ClientUsersPage() {
     setResetDialogOpen(true);
   };
 
+  // 5. Handle Edit User
+  const handleEditUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      setResetting(true); // Reuse loading state
+      await api.put(`/users/${editUserId}`, {
+        email: editFormData.email,
+        companyName: editFormData.companyName,
+        contactNumber: editFormData.contactNumber,
+        maxDisplays: Number(editFormData.maxDisplays || 10),
+        maxUsers: Number(editFormData.maxUsers || 5),
+        maxStorageMB: Number(editFormData.maxStorageMB || 25),
+        maxMonthlyUsageMB: Number(editFormData.maxMonthlyUsageMB || 150),
+        licenseExpiry: editFormData.licenseExpiry || null,
+        isActive: editFormData.isActive
+      });
+      
+      setEditDialogOpen(false);
+      setEditUserId('');
+      setEditFormData({
+        email: '',
+        companyName: '',
+        contactNumber: '',
+        maxDisplays: '10',
+        maxUsers: '5',
+        maxStorageMB: '25',
+        maxMonthlyUsageMB: '150',
+        licenseExpiry: '',
+        isActive: true
+      });
+      fetchUsers(); // Refresh list
+      alert('User updated successfully');
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to update user');
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const openEditDialog = (user: any) => {
+    setEditUserId(user.id);
+    setEditFormData({
+      email: user.email,
+      companyName: user.userAdminProfile?.companyName || '',
+      contactNumber: user.userAdminProfile?.contactNumber || '',
+      maxDisplays: String(user.userAdminProfile?.maxDisplays || 10),
+      maxUsers: String(user.userAdminProfile?.maxUsers || 5),
+      maxStorageMB: String(user.userAdminProfile?.maxStorageMB || 25),
+      maxMonthlyUsageMB: String(user.userAdminProfile?.maxMonthlyUsageMB || 150),
+      licenseExpiry: user.userAdminProfile?.licenseExpiry ? 
+        new Date(user.userAdminProfile.licenseExpiry).toISOString().split('T')[0] : '',
+      isActive: user.isActive
+    });
+    setEditDialogOpen(true);
+  };
+
+  // Open User Details Dialog
+  const openDetailsDialog = async (user: any) => {
+    setSelectedUser(user);
+    setDetailsDialogOpen(true);
+    setLoadingStats(true);
+    
+    try {
+      // Fetch user statistics (displays, staff count, storage usage)
+      const [displaysRes, staffRes] = await Promise.all([
+        api.get(`/displays?managedByUserId=${user.id}`),
+        api.get(`/users?createdByUserAdminId=${user.id}`)
+      ]);
+      
+      const displays = Array.isArray(displaysRes.data) ? displaysRes.data : displaysRes.data.displays || [];
+      const staff = Array.isArray(staffRes.data) ? staffRes.data : staffRes.data.users || [];
+      
+      setUserStats({
+        displayCount: displays.length,
+        staffCount: staff.length,
+        // Storage calculation would need to be implemented based on your media storage logic
+        storageUsedMB: 0, // TODO: Calculate actual storage usage
+      });
+    } catch (error) {
+      console.error('Failed to fetch user stats:', error);
+      setUserStats({
+        displayCount: 0,
+        staffCount: 0,
+        storageUsedMB: 0,
+      });
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  // Handle Suspend/Reactivate User Admin
+  const handleSuspendToggle = async (userId: string, currentStatus: boolean) => {
+    const action = currentStatus ? 'suspend' : 'reactivate';
+    const confirmMessage = currentStatus 
+      ? 'Are you sure you want to suspend this User Admin? This will also suspend all their staff members and unassign their displays.'
+      : 'Are you sure you want to reactivate this User Admin? This will also reactivate all their staff members.';
+
+    if (confirm(confirmMessage)) {
+      try {
+        setSuspending(true);
+        await api.patch(`/users/${userId}/suspend`);
+        fetchUsers(); // Refresh the list
+      } catch (err: any) {
+        alert(err.response?.data?.message || `Failed to ${action} user`);
+      } finally {
+        setSuspending(false);
+      }
+    }
+  };
+
   if (authLoading || loading) {
     return (
       <DashboardLayout>
@@ -189,34 +354,123 @@ export default function ClientUsersPage() {
                     <Plus className="h-5 w-5" /> Add User Admin
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="bg-white">
+                <DialogContent className="bg-white max-w-2xl">
                   <DialogHeader>
                     <DialogTitle className="text-2xl">Create New User Admin</DialogTitle>
                   </DialogHeader>
                   <form onSubmit={handleCreate} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-semibold">Email Address</Label>
+                        <Input 
+                          required 
+                          type="email" 
+                          placeholder="manager@branch.com"
+                          value={formData.email}
+                          onChange={e => setFormData({...formData, email: e.target.value})}
+                          className="h-12"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-semibold">Password</Label>
+                        <Input 
+                          required 
+                          type="password" 
+                          value={formData.password}
+                          onChange={e => setFormData({...formData, password: e.target.value})}
+                          className="h-12"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <h3 className="text-lg font-semibold mb-3">Company Information</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold">Company Name</Label>
+                          <Input 
+                            required
+                            type="text" 
+                            placeholder="Acme Corporation"
+                            value={formData.companyName}
+                            onChange={e => setFormData({...formData, companyName: e.target.value})}
+                            className="h-12"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold">Contact Number</Label>
+                          <Input 
+                            type="tel" 
+                            placeholder="+1 (555) 123-4567"
+                            value={formData.contactNumber}
+                            onChange={e => setFormData({...formData, contactNumber: e.target.value})}
+                            className="h-12"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t pt-4">
+                      <h3 className="text-lg font-semibold mb-3">Resource Limits</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold">Max Displays</Label>
+                          <Input 
+                            type="number"
+                            min="0"
+                            value={formData.maxDisplays}
+                            onChange={e => setFormData({...formData, maxDisplays: e.target.value})}
+                            className="h-12"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold">Max Staff Users</Label>
+                          <Input 
+                            type="number"
+                            min="0"
+                            value={formData.maxUsers}
+                            onChange={e => setFormData({...formData, maxUsers: e.target.value})}
+                            className="h-12"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold">Storage Limit (MB)</Label>
+                          <Input 
+                            type="number"
+                            min="0"
+                            value={formData.maxStorageMB}
+                            onChange={e => setFormData({...formData, maxStorageMB: e.target.value})}
+                            className="h-12"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm font-semibold">Monthly Upload Limit (MB)</Label>
+                          <Input 
+                            type="number"
+                            min="0"
+                            value={formData.maxMonthlyUsageMB}
+                            onChange={e => setFormData({...formData, maxMonthlyUsageMB: e.target.value})}
+                            className="h-12"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="space-y-2">
-                      <Label className="text-sm font-semibold">Email Address</Label>
+                      <Label className="text-sm font-semibold">License Expiry (Optional)</Label>
                       <Input 
-                        required 
-                        type="email" 
-                        placeholder="manager@branch.com"
-                        value={formData.email}
-                        onChange={e => setFormData({...formData, email: e.target.value})}
+                        type="date"
+                        value={formData.licenseExpiry}
+                        onChange={e => setFormData({...formData, licenseExpiry: e.target.value})}
                         className="h-12"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold">Password</Label>
-                      <Input 
-                    required 
-                    type="password" 
-                    value={formData.password}
-                    onChange={e => setFormData({...formData, password: e.target.value})}
-                  />
-                </div>
-                <Button type="submit" className="w-full signomart-primary hover:signomart-primary">Create User</Button>
-              </form>
-            </DialogContent>
+
+                    <Button type="submit" className="w-full signomart-primary hover:signomart-primary">
+                      Create User Admin
+                    </Button>
+                  </form>
+                </DialogContent>
           </Dialog>
             </div>
           </div>
@@ -273,6 +527,415 @@ export default function ClientUsersPage() {
           </DialogContent>
         </Dialog>
 
+        {/* EDIT USER MODAL */}
+        <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+          <DialogContent className="bg-white max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Edit User Admin</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleEditUser} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <Input 
+                    required 
+                    type="email" 
+                    placeholder="user@example.com"
+                    value={editFormData.email}
+                    onChange={e => setEditFormData({...editFormData, email: e.target.value})}
+                    disabled={resetting}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Company Name</Label>
+                  <Input 
+                    required 
+                    type="text" 
+                    placeholder="Company Name"
+                    value={editFormData.companyName}
+                    onChange={e => setEditFormData({...editFormData, companyName: e.target.value})}
+                    disabled={resetting}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Contact Number</Label>
+                  <Input 
+                    type="tel" 
+                    placeholder="+1 (555) 123-4567"
+                    value={editFormData.contactNumber}
+                    onChange={e => setEditFormData({...editFormData, contactNumber: e.target.value})}
+                    disabled={resetting}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Max Displays</Label>
+                  <Input 
+                    required 
+                    type="number" 
+                    min="1"
+                    placeholder="10"
+                    value={editFormData.maxDisplays}
+                    onChange={e => setEditFormData({...editFormData, maxDisplays: e.target.value})}
+                    disabled={resetting}
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Max Users (Staff)</Label>
+                  <Input 
+                    required 
+                    type="number" 
+                    min="1"
+                    placeholder="5"
+                    value={editFormData.maxUsers}
+                    onChange={e => setEditFormData({...editFormData, maxUsers: e.target.value})}
+                    disabled={resetting}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Storage Limit (MB)</Label>
+                  <Input 
+                    required 
+                    type="number" 
+                    min="1"
+                    placeholder="25"
+                    value={editFormData.maxStorageMB}
+                    onChange={e => setEditFormData({...editFormData, maxStorageMB: e.target.value})}
+                    disabled={resetting}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Monthly Usage Limit (MB)</Label>
+                  <Input 
+                    required 
+                    type="number" 
+                    min="1"
+                    placeholder="150"
+                    value={editFormData.maxMonthlyUsageMB}
+                    onChange={e => setEditFormData({...editFormData, maxMonthlyUsageMB: e.target.value})}
+                    disabled={resetting}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>License Expiry (Optional)</Label>
+                  <Input 
+                    type="date"
+                    value={editFormData.licenseExpiry}
+                    onChange={e => setEditFormData({...editFormData, licenseExpiry: e.target.value})}
+                    disabled={resetting}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="isActive"
+                    checked={editFormData.isActive}
+                    onChange={e => setEditFormData({...editFormData, isActive: e.target.checked})}
+                    disabled={resetting}
+                    className="rounded border-gray-300"
+                  />
+                  <Label htmlFor="isActive">Account Active</Label>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => setEditDialogOpen(false)}
+                  disabled={resetting}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={resetting} className="flex-1">
+                  {resetting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    'Update User Admin'
+                  )}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* USER DETAILS MODAL */}
+        <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+          <DialogContent className="bg-white max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl flex items-center gap-3">
+                <Eye className="h-6 w-6 text-blue-500" />
+                User Admin Details
+              </DialogTitle>
+            </DialogHeader>
+            
+            {selectedUser && (
+              <div className="space-y-6">
+                {/* Basic Information */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Users className="h-5 w-5 text-blue-500" />
+                        Basic Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-600">Email</Label>
+                        <p className="text-base font-medium">{selectedUser.email}</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-600">Status</Label>
+                        <div className="mt-1">
+                          <Badge className={selectedUser.isActive ? "bg-green-500" : "bg-red-500"}>
+                            {selectedUser.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-600">Created</Label>
+                        <p className="text-base">
+                          {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString() : 'Unknown'}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Building2 className="h-5 w-5 text-purple-500" />
+                        Company Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-600">Company Name</Label>
+                        <p className="text-base font-medium">
+                          {selectedUser.userAdminProfile?.companyName || 'Not specified'}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-600">Contact Number</Label>
+                        <p className="text-base flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-gray-400" />
+                          {selectedUser.userAdminProfile?.contactNumber || 'Not specified'}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-600">License Expiry</Label>
+                        <p className="text-base flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-gray-400" />
+                          {selectedUser.userAdminProfile?.licenseExpiry 
+                            ? new Date(selectedUser.userAdminProfile.licenseExpiry).toLocaleDateString()
+                            : 'No expiry set'
+                          }
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Resource Limits and Usage */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <HardDrive className="h-5 w-5 text-green-500" />
+                        Resource Limits
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-blue-50 p-3 rounded-lg">
+                          <Label className="text-xs font-semibold text-blue-600 uppercase">Max Displays</Label>
+                          <p className="text-2xl font-bold text-blue-700">
+                            {selectedUser.userAdminProfile?.maxDisplays || 0}
+                          </p>
+                        </div>
+                        <div className="bg-green-50 p-3 rounded-lg">
+                          <Label className="text-xs font-semibold text-green-600 uppercase">Max Staff</Label>
+                          <p className="text-2xl font-bold text-green-700">
+                            {selectedUser.userAdminProfile?.maxUsers || 0}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-purple-50 p-3 rounded-lg">
+                          <Label className="text-xs font-semibold text-purple-600 uppercase">Storage Limit</Label>
+                          <p className="text-2xl font-bold text-purple-700">
+                            {selectedUser.userAdminProfile?.maxStorageMB || 0} MB
+                          </p>
+                        </div>
+                        <div className="bg-orange-50 p-3 rounded-lg">
+                          <Label className="text-xs font-semibold text-orange-600 uppercase">Monthly Limit</Label>
+                          <p className="text-2xl font-bold text-orange-700">
+                            {selectedUser.userAdminProfile?.maxMonthlyUsageMB || 0} MB
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <UserCheck className="h-5 w-5 text-indigo-500" />
+                        Current Usage
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {loadingStats ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                          <span className="ml-2 text-gray-600">Loading usage data...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-blue-50 p-3 rounded-lg">
+                              <Label className="text-xs font-semibold text-blue-600 uppercase">Active Displays</Label>
+                              <p className="text-2xl font-bold text-blue-700">
+                                {userStats?.displayCount || 0}
+                              </p>
+                              <div className="text-xs text-blue-600 mt-1">
+                                of {selectedUser.userAdminProfile?.maxDisplays || 0} allowed
+                              </div>
+                            </div>
+                            <div className="bg-green-50 p-3 rounded-lg">
+                              <Label className="text-xs font-semibold text-green-600 uppercase">Staff Users</Label>
+                              <p className="text-2xl font-bold text-green-700">
+                                {userStats?.staffCount || 0}
+                              </p>
+                              <div className="text-xs text-green-600 mt-1">
+                                of {selectedUser.userAdminProfile?.maxUsers || 0} allowed
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-purple-50 p-3 rounded-lg">
+                              <Label className="text-xs font-semibold text-purple-600 uppercase">Storage Used</Label>
+                              <p className="text-2xl font-bold text-purple-700">
+                                {userStats?.storageUsedMB || 0} MB
+                              </p>
+                              <div className="text-xs text-purple-600 mt-1">
+                                of {selectedUser.userAdminProfile?.maxStorageMB || 0} MB
+                              </div>
+                            </div>
+                            <div className="bg-orange-50 p-3 rounded-lg">
+                              <Label className="text-xs font-semibold text-orange-600 uppercase">Monthly Upload</Label>
+                              <p className="text-2xl font-bold text-orange-700">
+                                {Math.round((selectedUser.userAdminProfile?.monthlyUploadedBytes || 0) / (1024 * 1024))} MB
+                              </p>
+                              <div className="text-xs text-orange-600 mt-1">
+                                of {selectedUser.userAdminProfile?.maxMonthlyUsageMB || 0} MB
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Usage Progress Bars */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Upload className="h-5 w-5 text-yellow-500" />
+                      Usage Overview
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {!loadingStats && userStats && (
+                      <>
+                        {/* Displays Usage */}
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <Label className="text-sm font-semibold">Display Usage</Label>
+                            <span className="text-sm text-gray-600">
+                              {userStats.displayCount} / {selectedUser.userAdminProfile?.maxDisplays || 0}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div 
+                              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                              style={{ 
+                                width: `${Math.min(100, (userStats.displayCount / (selectedUser.userAdminProfile?.maxDisplays || 1)) * 100)}%` 
+                              }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {/* Staff Usage */}
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <Label className="text-sm font-semibold">Staff Usage</Label>
+                            <span className="text-sm text-gray-600">
+                              {userStats.staffCount} / {selectedUser.userAdminProfile?.maxUsers || 0}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div 
+                              className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                              style={{ 
+                                width: `${Math.min(100, (userStats.staffCount / (selectedUser.userAdminProfile?.maxUsers || 1)) * 100)}%` 
+                              }}
+                            ></div>
+                          </div>
+                        </div>
+
+                        {/* Monthly Upload Usage */}
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <Label className="text-sm font-semibold">Monthly Upload Usage</Label>
+                            <span className="text-sm text-gray-600">
+                              {Math.round((selectedUser.userAdminProfile?.monthlyUploadedBytes || 0) / (1024 * 1024))} MB / {selectedUser.userAdminProfile?.maxMonthlyUsageMB || 0} MB
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div 
+                              className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                              style={{ 
+                                width: `${Math.min(100, ((selectedUser.userAdminProfile?.monthlyUploadedBytes || 0) / (1024 * 1024)) / (selectedUser.userAdminProfile?.maxMonthlyUsageMB || 1) * 100)}%` 
+                              }}
+                            ></div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <div className="flex justify-end">
+                  <Button 
+                    onClick={() => setDetailsDialogOpen(false)}
+                    className="bg-gray-500 hover:bg-gray-600"
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
         {error && (
           <div className="bg-red-50 text-red-600 p-4 rounded-md flex items-center">
             <ShieldAlert className="mr-2 h-5 w-5" />
@@ -288,6 +951,7 @@ export default function ClientUsersPage() {
                 <TableRow>
                   <TableHead>User (Email)</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Limits</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -295,15 +959,32 @@ export default function ClientUsersPage() {
               <TableBody>
                 {users.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={5} className="text-center py-8 text-gray-500">
                       No users found. Create one to get started.
                     </TableCell>
                   </TableRow>
                 ) : (
                   users.map((u) => (
                     <TableRow key={u.id}>
-                      <TableCell className="font-medium">{u.email}</TableCell>
+                      <TableCell className="font-medium">
+                        <button
+                          onClick={() => openDetailsDialog(u)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        >
+                          {u.email}
+                        </button>
+                      </TableCell>
                       <TableCell><Badge variant="outline">User Admin</Badge></TableCell>
+                      <TableCell>
+                        {u.userAdminProfile ? (
+                          <div className="text-sm text-gray-600">
+                            <div>Displays: {u.userAdminProfile.maxDisplays}</div>
+                            <div>Storage: {u.userAdminProfile.maxStorageMB}MB</div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">No limits set</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         {u.isActive ? (
                           <Badge className="bg-green-500">Active</Badge>
@@ -313,6 +994,40 @@ export default function ClientUsersPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex gap-2 justify-end">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-blue-500 hover:text-blue-700"
+                            onClick={() => openDetailsDialog(u)}
+                            title="View Details"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-green-500 hover:text-green-700"
+                            onClick={() => openEditDialog(u)}
+                            title="Edit User Admin"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className={u.isActive ? "text-orange-500 hover:text-orange-700" : "text-green-500 hover:text-green-700"}
+                            onClick={() => handleSuspendToggle(u.id, u.isActive)}
+                            title={u.isActive ? "Suspend User Admin" : "Reactivate User Admin"}
+                            disabled={suspending}
+                          >
+                            {suspending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : u.isActive ? (
+                              <UserX className="h-4 w-4" />
+                            ) : (
+                              <Power className="h-4 w-4" />
+                            )}
+                          </Button>
                           <Button 
                             variant="ghost" 
                             size="sm" 

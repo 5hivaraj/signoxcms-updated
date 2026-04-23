@@ -252,13 +252,16 @@ export function Sidebar({ user }: SidebarProps) {
           <Settings className="h-5 w-5 flex-shrink-0" />
           <span className="truncate">Profile Settings</span>
         </button>
-        <button
-          onClick={() => router.push('/profile#password')}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-yellow-50 hover:text-gray-900 mb-2 transition-colors"
-        >
-          <KeyRound className="h-5 w-5 flex-shrink-0" />
-          <span className="truncate">Reset Password</span>
-        </button>
+        {/* Reset Password - Only for SUPER_ADMIN and CLIENT_ADMIN */}
+        {(user.role === 'SUPER_ADMIN' || user.role === 'CLIENT_ADMIN') && (
+          <button
+            onClick={() => router.push('/profile#password')}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-yellow-50 hover:text-gray-900 mb-2 transition-colors"
+          >
+            <KeyRound className="h-5 w-5 flex-shrink-0" />
+            <span className="truncate">Reset Password</span>
+          </button>
+        )}
         <button
           onClick={handleLogout}
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-red-50 hover:text-red-700 transition-colors"

@@ -104,7 +104,8 @@ exports.getSummary = async (req, res) => {
         calculateDisplayStatus(display) === 'ONLINE'
       ).length;
 
-      const totalDisplaysAllowed = profile?.maxDisplays ?? 0;
+      // After migration, CLIENT_ADMIN doesn't have limits - they're at USER_ADMIN level
+      // So we don't show display limits for CLIENT_ADMIN anymore
       const licenseExpiry = profile?.licenseExpiry ?? null;
       const licenseActive = profile?.isActive ?? true;
 
@@ -114,7 +115,7 @@ exports.getSummary = async (req, res) => {
         totalDisplays: displayCount,
         onlineDisplays: onlineCount,
         offlineDisplays: displayCount - onlineCount,
-        displayLimit: totalDisplaysAllowed,
+        // Remove displayLimit since it's now managed at USER_ADMIN level
         totalContent: 0,
         totalPlaylists: 0,
         averageUptime: 0,
@@ -128,7 +129,7 @@ exports.getSummary = async (req, res) => {
 
     if (user.role === 'USER_ADMIN') {
       console.log('📊 [ANALYTICS DEBUG] User Admin requesting summary:', user.email);
-      const [myDisplays, mediaCount, playlistCount] = await Promise.all([
+      const [myDisplays, mediaCount, playlistCount, userAdminProfile] = await Promise.all([
         // Only get paired displays with heartbeat data
         prisma.display.findMany({
           where: { 
@@ -143,13 +144,18 @@ exports.getSummary = async (req, res) => {
         prisma.playlist.count({
           where: { createdById: user.id },
         }),
+        // Get USER_ADMIN profile with limits and license info
+        prisma.userAdminProfile.findUnique({
+          where: { userAdminId: user.id },
+        }),
       ]);
 
       console.log('📊 [ANALYTICS DEBUG] User Admin counts:', {
         userId: user.id,
         displayCount: myDisplays.length,
         mediaCount,
-        playlistCount
+        playlistCount,
+        maxDisplays: userAdminProfile?.maxDisplays
       });
 
       // Calculate real-time online/offline status
@@ -165,11 +171,31 @@ exports.getSummary = async (req, res) => {
       });
       const bytes = storageAgg._sum.fileSize ?? 0;
 
+      // License status based on USER_ADMIN profile
+      const licenseActive = userAdminProfile?.isActive ?? true;
+      const licenseExpiry = userAdminProfile?.licenseExpiry ?? null;
+      
+      let licenseStatus = 'ACTIVE';
+      if (!licenseActive) {
+        licenseStatus = 'SUSPENDED';
+      } else if (licenseExpiry) {
+        const now = new Date();
+        const expiry = new Date(licenseExpiry);
+        const daysUntilExpiry = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (daysUntilExpiry < 0) {
+          licenseStatus = 'EXPIRED';
+        } else if (daysUntilExpiry <= 7) {
+          licenseStatus = 'EXPIRING_SOON';
+        }
+      }
+
       return res.json({
         role: 'USER_ADMIN',
         totalDisplays: myDisplays.length,
         onlineDisplays: online,
         offlineDisplays: offline,
+        displayLimit: userAdminProfile?.maxDisplays ?? 0,
         totalContent: mediaCount,
         totalPlaylists: playlistCount,
         averageUptime: 0,
@@ -182,6 +208,18 @@ exports.getSummary = async (req, res) => {
         mediaCount,
         playlistCount,
         storageBytes: bytes,
+        // Add license and limits info for USER_ADMIN
+        license: {
+          status: licenseStatus,
+          expiry: licenseExpiry,
+        },
+        limits: {
+          maxDisplays: userAdminProfile?.maxDisplays ?? 0,
+          maxUsers: userAdminProfile?.maxUsers ?? 0,
+          maxStorageMB: userAdminProfile?.maxStorageMB ?? 0,
+          maxMonthlyUsageMB: userAdminProfile?.maxMonthlyUsageMB ?? 0,
+          monthlyUploadedBytes: Number(userAdminProfile?.monthlyUploadedBytes ?? 0),
+        },
       });
     }
 

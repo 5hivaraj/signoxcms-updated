@@ -42,7 +42,7 @@ async function main() {
     role: 'SUPER_ADMIN',
   });
 
-  // 2) CLIENT_ADMIN + profile
+  // 2) CLIENT_ADMIN + profile (no limits at CLIENT_ADMIN level)
   const clientAdmin = await upsertUser({
     email: 'client@signox.com',
     password: 'client123',
@@ -53,8 +53,6 @@ async function main() {
     where: { clientAdminId: clientAdmin.id },
     update: {
       clientId: 'CL-DEMO-001',
-      maxDisplays: 5,
-      maxUsers: 10,
       licenseExpiry: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30), // +30 days
       companyName: 'Demo Client Co',
       contactEmail: 'client@signox.com',
@@ -63,8 +61,6 @@ async function main() {
     create: {
       clientAdminId: clientAdmin.id,
       clientId: 'CL-DEMO-001',
-      maxDisplays: 5,
-      maxUsers: 10,
       licenseExpiry: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
       companyName: 'Demo Client Co',
       contactEmail: 'client@signox.com',
@@ -72,12 +68,33 @@ async function main() {
     },
   });
 
-  // 3) USER_ADMIN under that client
+  // 3) USER_ADMIN under that client + profile with limits
   const userAdmin = await upsertUser({
     email: 'useradmin@signox.com',
     password: 'useradmin123',
     role: 'USER_ADMIN',
     managedByClientAdminId: clientAdmin.id,
+  });
+
+  await prisma.userAdminProfile.upsert({
+    where: { userAdminId: userAdmin.id },
+    update: {
+      maxDisplays: 5,
+      maxUsers: 10,
+      maxStorageMB: 25,
+      maxMonthlyUsageMB: 150,
+      licenseExpiry: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30), // +30 days
+      isActive: true,
+    },
+    create: {
+      userAdminId: userAdmin.id,
+      maxDisplays: 5,
+      maxUsers: 10,
+      maxStorageMB: 25,
+      maxMonthlyUsageMB: 150,
+      licenseExpiry: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+      isActive: true,
+    },
   });
 
   // 4) STAFF users created by that user admin

@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Activity, Monitor, Users, Building2, User, Crown, Calendar, TrendingUp, HardDrive } from 'lucide-react';
+import { Activity, Monitor, Users, Building2, User, Crown, TrendingUp, HardDrive } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +15,8 @@ import 'aos/dist/aos.css';
 interface ClientSummary {
   userAdmins: number;
   totalDisplays: number;
-  displayLimit: number;
+  onlineDisplays: number;
+  offlineDisplays: number;
   license: {
     status: string;
     expiry: string | null;
@@ -99,15 +100,6 @@ export default function ClientDashboard() {
       .catch(() => setStorageInfo(null));
   }, []);
 
-  const licenseLabel =
-    summary && summary.license.expiry
-      ? `${summary.license.status} · Expires ${new Date(
-          summary.license.expiry
-        ).toLocaleDateString()}`
-      : summary
-      ? summary.license.status
-      : undefined;
-
   const getRoleDisplayName = (role: string, staffRole?: string) => {
     const roleNames = {
       SUPER_ADMIN: 'Super Administrator',
@@ -129,21 +121,6 @@ export default function ClientDashboard() {
       displayName += ` - ${staffRoleNames[staffRole as keyof typeof staffRoleNames] || staffRole}`;
     }
     return displayName;
-  };
-
-  const getLicenseStatusColor = (status: string) => {
-    switch (status?.toUpperCase()) {
-      case 'ACTIVE':
-        return 'bg-green-500';
-      case 'EXPIRED':
-        return 'bg-red-500';
-      case 'SUSPENDED':
-        return 'bg-orange-500';
-      case 'EXPIRING_SOON':
-        return 'bg-yellow-500';
-      default:
-        return 'bg-gray-500';
-    }
   };
 
   return (
@@ -175,8 +152,8 @@ export default function ClientDashboard() {
                 </div>
               </div>
               {summary?.license && (
-                <div className={`${getLicenseStatusColor(summary.license.status)} px-6 py-3 rounded-xl shadow-lg`}>
-                  <p className="text-white font-bold text-sm">License: {summary.license.status}</p>
+                <div className="bg-blue-500 px-6 py-3 rounded-xl shadow-lg">
+                  <p className="text-white font-bold text-sm">Organization License: {summary.license.status}</p>
                 </div>
               )}
             </div>
@@ -213,7 +190,7 @@ export default function ClientDashboard() {
         )}
 
         {/* Stats Grid */}
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2">
           <StatCard
             title="User Admins"
             value={summary?.userAdmins ?? '—'}
@@ -221,87 +198,48 @@ export default function ClientDashboard() {
             gradient="from-blue-400 to-blue-600"
           />
           <StatCard
-            title="Displays"
-            value={summary ? `${summary.totalDisplays}/${summary.displayLimit}` : '—'}
-            subtitle="Current displays vs license limit"
+            title="Total Displays"
+            value={summary?.totalDisplays ?? '—'}
+            subtitle={summary ? `${summary.onlineDisplays} online · ${summary.offlineDisplays} offline` : undefined}
             icon={<Monitor className="h-8 w-8" />}
             gradient="from-yellow-400 to-orange-500"
           />
-          <StatCard
-            title="License Status"
-            value={summary?.license.status ?? '—'}
-            subtitle={licenseLabel}
-            icon={<Activity className="h-8 w-8" />}
-            gradient="from-green-400 to-green-600"
-          />
         </div>
 
-        {/* License and Usage Details */}
-        <div className="grid gap-6 md:grid-cols-2" data-aos="fade-up" data-aos-delay="200">
-          <Card className="border-gray-200 shadow-lg hover:shadow-xl transition-shadow duration-300">
-            <CardHeader className="bg-gradient-to-r from-yellow-50 to-orange-50">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <div className="bg-gradient-to-br from-yellow-400 to-orange-500 p-3 rounded-xl">
-                  <Calendar className="h-6 w-6 text-white" />
-                </div>
-                License Information
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                  <span className="text-gray-700 font-medium">Status</span>
-                  <Badge className={`${getLicenseStatusColor(summary?.license.status || '')} text-white font-bold`}>
-                    {summary?.license.status || 'Unknown'}
-                  </Badge>
-                </div>
-                {summary?.license.expiry && (
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                    <span className="text-gray-700 font-medium">Expires On</span>
-                    <span className="text-gray-900 font-bold">
-                      {new Date(summary.license.expiry).toLocaleDateString()}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
+        {/* User Management Overview */}
+        <div className="grid gap-6 md:grid-cols-1" data-aos="fade-up" data-aos-delay="200">
           <Card className="border-gray-200 shadow-lg hover:shadow-xl transition-shadow duration-300">
             <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50">
               <CardTitle className="flex items-center gap-3 text-xl">
                 <div className="bg-gradient-to-br from-blue-400 to-purple-500 p-3 rounded-xl">
                   <TrendingUp className="h-6 w-6 text-white" />
                 </div>
-                Display Usage
+                Organization Overview
               </CardTitle>
+              <CardDescription>
+                Manage your User Admins who control displays, content, and have individual limits and licenses.
+              </CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-600 font-medium">Capacity</span>
-                  <span className="text-2xl font-black text-gray-900">
-                    {summary ? `${Math.round((summary.totalDisplays / summary.displayLimit) * 100)}%` : '—'}
-                  </span>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="bg-gray-50 p-4 rounded-xl text-center">
+                  <div className="text-2xl font-bold text-blue-600 mb-1">{summary?.userAdmins ?? 0}</div>
+                  <div className="text-sm text-gray-600">User Admins</div>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-3">
-                  <div
-                    className="bg-gradient-to-r from-yellow-400 to-orange-500 h-3 rounded-full transition-all duration-500"
-                    style={{
-                      width: summary
-                        ? `${Math.min((summary.totalDisplays / summary.displayLimit) * 100, 100)}%`
-                        : '0%'
-                    }}
-                  ></div>
+                <div className="bg-gray-50 p-4 rounded-xl text-center">
+                  <div className="text-2xl font-bold text-yellow-600 mb-1">{summary?.totalDisplays ?? 0}</div>
+                  <div className="text-sm text-gray-600">Total Displays</div>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">
-                    <span className="font-bold text-gray-900">{summary?.totalDisplays ?? 0}</span> used
-                  </span>
-                  <span className="text-gray-500">
-                    <span className="font-bold text-gray-900">{summary?.displayLimit ?? 0}</span> total
-                  </span>
+                <div className="bg-gray-50 p-4 rounded-xl text-center">
+                  <div className="text-2xl font-bold text-green-600 mb-1">{summary?.onlineDisplays ?? 0}</div>
+                  <div className="text-sm text-gray-600">Online Displays</div>
                 </div>
+              </div>
+              <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+                <p className="text-sm text-yellow-800">
+                  <strong>Note:</strong> Display limits, storage quotas, and license expiry are now managed at the User Admin level. 
+                  Each User Admin has individual limits and license terms.
+                </p>
               </div>
             </CardContent>
           </Card>

@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const { checkStorageLimit, getClientStorageInfo, getClientAdminId, incrementMonthlyUpload } = require('../utils/storage.utils');
+const { checkStorageLimit, getClientStorageInfo, getUserStorageInfo, getClientAdminId, incrementMonthlyUpload } = require('../utils/storage.utils');
 const imageOptimizationService = require('../services/image-optimization.service');
 const s3Media = require('../services/s3-media.service');
 const paginationService = require('../services/pagination.service');
@@ -763,13 +763,27 @@ exports.listMedia = catchAsync(async (req, res) => {
 
 exports.getStorageInfo = async (req, res) => {
   try {
-    const clientAdminId = await getClientAdminId(req.user?.id);
+    const user = req.user;
     
-    if (!clientAdminId) {
-      return res.status(400).json({ message: 'Unable to determine client association' });
+    if (!user) {
+      return res.status(401).json({ message: 'Authentication required' });
     }
 
-    const storageInfo = await getClientStorageInfo(clientAdminId);
+    let storageInfo;
+
+    if (user.role === 'USER_ADMIN') {
+      // For USER_ADMIN, get their individual storage info
+      storageInfo = await getUserStorageInfo(user.id);
+    } else {
+      // For CLIENT_ADMIN and others, use the existing logic
+      const clientAdminId = await getClientAdminId(user.id);
+      
+      if (!clientAdminId) {
+        return res.status(400).json({ message: 'Unable to determine client association' });
+      }
+
+      storageInfo = await getClientStorageInfo(clientAdminId);
+    }
     
     res.json({ storageInfo });
   } catch (error) {

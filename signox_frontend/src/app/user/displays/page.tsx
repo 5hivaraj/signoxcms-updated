@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Edit, Trash2, Loader2, Calendar, Monitor, Activity, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, Calendar, Monitor, Activity, Search, CheckCircle } from 'lucide-react';
 import api from '@/lib/api';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
@@ -60,6 +60,47 @@ interface Display {
   } | null;
 }
 
+// Circular Progress Component
+function CircularProgress({ progress, size = 24 }: { progress: number; size?: number }) {
+  const radius = (size - 4) / 2;
+  const circumference = radius * 2 * Math.PI;
+  const strokeDashoffset = circumference - (progress / 100) * circumference;
+
+  return (
+    <div className="relative inline-flex items-center justify-center">
+      <svg
+        className="transform -rotate-90"
+        width={size}
+        height={size}
+      >
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth="2"
+          fill="transparent"
+          className="text-gray-200"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth="2"
+          fill="transparent"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          className="text-blue-500 transition-all duration-300 ease-in-out"
+        />
+      </svg>
+      <span className="absolute text-xs font-medium text-gray-700">
+        {Math.round(progress)}%
+      </span>
+    </div>
+  );
+}
+
 export default function DisplaysPage() {
   const { user } = useAuth();
   const [displays, setDisplays] = useState<Display[]>([]);
@@ -92,6 +133,9 @@ export default function DisplaysPage() {
   const [editLocation, setEditLocation] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const editNameInputRef = useRef<HTMLInputElement>(null);
+
+  // Progress tracking for content push
+  const [pushProgress, setPushProgress] = useState<Record<string, { progress: number; isComplete: boolean; isPermanent: boolean }>>({});
 
   // Check if user has access
   const hasAccess =
@@ -189,19 +233,30 @@ export default function DisplaysPage() {
 
   const fetchDisplayLimits = async () => {
     try {
-      // For USER_ADMIN, get their client admin's profile
-      if (user?.role === 'USER_ADMIN' && user?.managedByClientAdminId) {
-        const response = await api.get(`/users/client-admins`);
-        const clientAdmins = response.data.clientAdmins || [];
-        const clientAdmin = clientAdmins.find((ca: any) => ca.id === user.managedByClientAdminId);
-        
-        if (clientAdmin?.clientProfile) {
-          const pairedDisplays = displays.filter(d => d.isPaired).length;
-          setDisplayLimits({
-            maxDisplays: clientAdmin.clientProfile.maxDisplays || 10,
-            currentCount: pairedDisplays
-          });
-        }
+      // For USER_ADMIN, check their own userAdminProfile limits
+      if (user?.role === 'USER_ADMIN' && user?.userAdminProfile) {
+        const pairedDisplays = displays.filter(d => d.isPaired).length;
+        setDisplayLimits({
+          maxDisplays: user.userAdminProfile.maxDisplays || 10,
+          currentCount: pairedDisplays
+        });
+      }
+      // For CLIENT_ADMIN, check their clientProfile limits (if they still have limits)
+      else if (user?.role === 'CLIENT_ADMIN' && user?.clientProfile) {
+        const pairedDisplays = displays.filter(d => d.isPaired).length;
+        setDisplayLimits({
+          maxDisplays: user.clientProfile.maxDisplays || 10,
+          currentCount: pairedDisplays
+        });
+      }
+      // For STAFF, we need to get their parent USER_ADMIN's limits
+      else if (user?.role === 'STAFF') {
+        // For now, set a default limit - you might want to fetch from API
+        const pairedDisplays = displays.filter(d => d.isPaired).length;
+        setDisplayLimits({
+          maxDisplays: 10, // Default limit for STAFF
+          currentCount: pairedDisplays
+        });
       }
     } catch (error) {
       console.error('Failed to fetch display limits:', error);
@@ -210,12 +265,24 @@ export default function DisplaysPage() {
 
   const fetchPlaylists = async () => {
     const res = await api.get('/playlists');
-    setPlaylists(res.data.playlists ?? []);
+    const playlistsData = res.data.playlists ?? [];
+    setPlaylists(playlistsData);
+    
+    // If no playlist is currently selected and we have playlists, select the first one
+    if (!selectedPlaylistId && playlistsData.length > 0 && contentType === 'playlist') {
+      setSelectedPlaylistId(playlistsData[0].id);
+    }
   };
 
   const fetchLayouts = async () => {
     const res = await api.get('/layouts');
-    setLayouts(res.data.layouts ?? []);
+    const layoutsData = res.data.layouts ?? [];
+    setLayouts(layoutsData);
+    
+    // If no layout is currently selected and we have layouts, select the first one
+    if (!selectedLayoutId && layoutsData.length > 0 && contentType === 'layout') {
+      setSelectedLayoutId(layoutsData[0].id);
+    }
   };
 
   const openEditDialog = (display: Display) => {
@@ -257,8 +324,7 @@ export default function DisplaysPage() {
     try {
       setError('');
       setSelectedDisplay(display);
-      setSelectedPlaylistId(display.playlistId || '');
-      setSelectedLayoutId(display.layoutId || '');
+      
       // Determine content type based on what's assigned
       if (display.layoutId) {
         setContentType('layout');
@@ -267,8 +333,30 @@ export default function DisplaysPage() {
       } else {
         setContentType('playlist'); // Default to playlist
       }
-      setAssignOpen(true);
+      
+      // Fetch playlists and layouts first
       await Promise.all([fetchPlaylists(), fetchLayouts()]);
+      
+      // Set the selected values after fetching data
+      if (display.playlistId) {
+        setSelectedPlaylistId(display.playlistId);
+      } else if (display.layoutId) {
+        setSelectedLayoutId(display.layoutId);
+      } else {
+        // If no content is assigned, select the first available item
+        const playlistsRes = await api.get('/playlists');
+        const layoutsRes = await api.get('/layouts');
+        const playlistsData = playlistsRes.data.playlists ?? [];
+        const layoutsData = layoutsRes.data.layouts ?? [];
+        
+        if (contentType === 'playlist' && playlistsData.length > 0) {
+          setSelectedPlaylistId(playlistsData[0].id);
+        } else if (contentType === 'layout' && layoutsData.length > 0) {
+          setSelectedLayoutId(layoutsData[0].id);
+        }
+      }
+      
+      setAssignOpen(true);
     } catch (e: any) {
       console.error('Failed to fetch content:', e);
       setError('Failed to load content. Please try again.');
@@ -284,12 +372,20 @@ export default function DisplaysPage() {
       const updateData: { playlistId?: string | null; layoutId?: string | null } = {};
       
       if (contentType === 'playlist') {
-        // Convert empty string to null for playlist
-        updateData.playlistId = selectedPlaylistId && selectedPlaylistId.trim() !== '' ? selectedPlaylistId : null;
+        // Ensure we have a valid playlist ID selected
+        if (!selectedPlaylistId || selectedPlaylistId.trim() === '') {
+          setError('Please select a playlist');
+          return;
+        }
+        updateData.playlistId = selectedPlaylistId;
         updateData.layoutId = null; // Clear layout when assigning playlist
       } else {
-        // Convert empty string to null for layout
-        updateData.layoutId = selectedLayoutId && selectedLayoutId.trim() !== '' ? selectedLayoutId : null;
+        // Ensure we have a valid layout ID selected
+        if (!selectedLayoutId || selectedLayoutId.trim() === '') {
+          setError('Please select a layout');
+          return;
+        }
+        updateData.layoutId = selectedLayoutId;
         updateData.playlistId = null; // Clear playlist when assigning layout
       }
       
@@ -297,9 +393,42 @@ export default function DisplaysPage() {
         displayId: selectedDisplay.id,
         updateData
       });
+
+      // Start progress tracking - clear any existing permanent status
+      const displayId = selectedDisplay.id;
+      setPushProgress(prev => ({
+        ...prev,
+        [displayId]: { progress: 0, isComplete: false, isPermanent: false }
+      }));
+
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setPushProgress(prev => {
+          const current = prev[displayId]?.progress || 0;
+          if (current >= 100) {
+            clearInterval(progressInterval);
+            return {
+              ...prev,
+              [displayId]: { progress: 100, isComplete: true, isPermanent: false }
+            };
+          }
+          return {
+            ...prev,
+            [displayId]: { progress: current + 10, isComplete: false, isPermanent: false }
+          };
+        });
+      }, 200);
       
       const response = await api.patch(`/displays/${selectedDisplay.id}`, updateData);
       console.log('Assignment successful:', response.data);
+
+      // Complete the progress and make it permanent
+      setTimeout(() => {
+        setPushProgress(prev => ({
+          ...prev,
+          [displayId]: { progress: 100, isComplete: true, isPermanent: true }
+        }));
+      }, 2000);
       
       setAssignOpen(false);
       setSelectedDisplay(null);
@@ -310,6 +439,15 @@ export default function DisplaysPage() {
       console.error('Failed to assign content:', e);
       const errorMessage = e?.response?.data?.error || e?.response?.data?.message || e?.response?.data?.details || 'Failed to assign content';
       setError(errorMessage);
+      
+      // Clear progress on error
+      if (selectedDisplay) {
+        setPushProgress(prev => {
+          const newState = { ...prev };
+          delete newState[selectedDisplay.id];
+          return newState;
+        });
+      }
     } finally {
       setAssignLoading(false);
     }
@@ -789,6 +927,7 @@ export default function DisplaysPage() {
                   <TableHead className="min-w-[180px]">Current Content</TableHead>
                   <TableHead className="w-[120px]">Pairing Code</TableHead>
                   <TableHead className="min-w-[120px]">Location</TableHead>
+                  <TableHead className="w-[100px]">Push Status</TableHead>
                   <TableHead className="w-[140px]">Last Seen</TableHead>
                   {selectedDisplayIds.length === 0 && (
                     <TableHead className="text-right w-[120px]">Actions</TableHead>
@@ -855,6 +994,19 @@ export default function DisplaysPage() {
                       </code>
                     </TableCell>
                     <TableCell>{display.location || '—'}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-center">
+                        {pushProgress[display.id] && (
+                          <>
+                            {pushProgress[display.id].isComplete ? (
+                              <CheckCircle className="h-5 w-5 text-green-500" />
+                            ) : (
+                              <CircularProgress progress={pushProgress[display.id].progress} size={20} />
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-sm text-gray-500">
                       {formatDate(display.lastHeartbeat)}
                     </TableCell>
@@ -1017,7 +1169,6 @@ export default function DisplaysPage() {
                   onChange={(e) => setSelectedPlaylistId(e.target.value)}
                   disabled={assignLoading}
                 >
-                  <option value="">— Unassigned —</option>
                   {playlists.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -1038,7 +1189,6 @@ export default function DisplaysPage() {
                   onChange={(e) => setSelectedLayoutId(e.target.value)}
                   disabled={assignLoading}
                 >
-                  <option value="">— Unassigned —</option>
                   {layouts.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name}

@@ -122,7 +122,8 @@ function DroppableSection({
   const isTextSection =
     section.type === 'text' ||
     section.sectionType === 'SCROLL_TEXT' ||
-    !!section.textConfig;
+    !!section.textConfig ||
+    (section.name && section.name.toLowerCase().includes('scroll'));
 
   return (
     <div
@@ -1147,11 +1148,11 @@ export default function LayoutBuilderPage() {
                         <div className="absolute inset-0 p-1 flex flex-col overflow-hidden">
                           <div className="flex items-center justify-between mb-0.5">
                             <div className="text-xs font-semibold text-gray-600 truncate">{section.name}</div>
-                            {(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig) && (
+                            {(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig || (section.name && section.name.toLowerCase().includes('scroll'))) && (
                               <Type className="h-3 w-3 text-purple-500 flex-shrink-0" />
                             )}
                           </div>
-                          {(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig) ? (
+                          {(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig || (section.name && section.name.toLowerCase().includes('scroll'))) ? (
                             section.textConfig ? (
                               <div className="text-xs text-green-600">
                                 Text configured
@@ -1168,7 +1169,7 @@ export default function LayoutBuilderPage() {
                               </div>
                             )
                           )}
-                          {section.id === activeSection && !(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig) && section.items.length === 0 && (
+                          {section.id === activeSection && !(section.type === 'text' || section.sectionType === 'SCROLL_TEXT' || !!section.textConfig || (section.name && section.name.toLowerCase().includes('scroll'))) && section.items.length === 0 && (
                             <div className="text-xs text-gray-400 text-center mt-auto mb-auto">
                               Drop Media
                             </div>
@@ -1186,7 +1187,7 @@ export default function LayoutBuilderPage() {
                 data-aos="fade-up"
                 data-aos-delay="300"
               >
-                {(currentSection?.type === 'text' || currentSection?.sectionType === 'SCROLL_TEXT' || !!currentSection?.textConfig) && (
+                {(currentSection?.type === 'text' || currentSection?.sectionType === 'SCROLL_TEXT' || !!currentSection?.textConfig || (currentSection?.name && currentSection.name.toLowerCase().includes('scroll'))) && (
                   <div className="mb-4 rounded-lg border border-purple-200 bg-purple-50 p-4">
                     <div className="text-center space-y-3">
                       <Type className="h-10 w-10 text-purple-500 mx-auto" />
@@ -1225,20 +1226,15 @@ export default function LayoutBuilderPage() {
                   </div>
                 )}
 
-                {!currentSection || currentSection.items.length === 0 ? (
+                {(!currentSection || currentSection.items.length === 0) && !(currentSection?.type === 'text' || currentSection?.sectionType === 'SCROLL_TEXT' || !!currentSection?.textConfig || (currentSection?.name && currentSection.name.toLowerCase().includes('scroll'))) ? (
                   <div className="flex items-center justify-center h-full text-gray-400 min-h-[120px]">
                     <div className="text-center">
                       <p className="text-sm font-medium mb-1">[ Drag & Drop Media Here ]</p>
                       <p className="text-xs">Or click the + button on media items to add them</p>
                     </div>
                   </div>
-                ) : (
+                ) : currentSection && currentSection.items.length > 0 && !(currentSection.type === 'text' || currentSection.sectionType === 'SCROLL_TEXT' || !!currentSection.textConfig || (currentSection.name && currentSection.name.toLowerCase().includes('scroll'))) ? (
                   <>
-                    {(currentSection.type === 'text' || currentSection.sectionType === 'SCROLL_TEXT' || !!currentSection.textConfig) && (
-                      <p className="text-xs text-amber-700 mb-2">
-                        Assigned media in this text section (you can remove/reorder below):
-                      </p>
-                    )}
                     <SortableContext
                       items={currentSection.items.map(item => item.id)}
                       strategy={verticalListSortingStrategy}
@@ -1258,7 +1254,7 @@ export default function LayoutBuilderPage() {
                       </div>
                     </SortableContext>
                   </>
-                )}
+                ) : null}
               </div>
             </div>
           )}

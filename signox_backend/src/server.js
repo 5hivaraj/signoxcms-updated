@@ -66,6 +66,7 @@ const imageOptimizationService = require('./services/image-optimization.service'
 const databaseOptimizationService = require('./services/database-optimization.service');
 const licenseCheckService = require('./services/license-check.service');
 const displayStatusService = require('./services/display-status.service');
+const licenseExpiryService = require('./services/license-expiry.service');
 
 // Middleware
 const { logAuthEvents, logSensitiveAccess, logSuspiciousActivity } = require('./middleware/logging.middleware');
@@ -314,6 +315,35 @@ app.use(globalErrorHandler);
    SERVER START
 ========================= */
 
+/* =========================
+   LICENSE EXPIRY CHECK
+========================= */
+
+let licenseExpiryInterval;
+
+function startLicenseExpiryCheck() {
+  console.log('🔄 [LICENSE EXPIRY] Starting license expiry check service...');
+  
+  // Run immediately on startup
+  licenseExpiryService.checkAndSuspendExpiredLicenses()
+    .then(result => {
+      console.log(`✅ [LICENSE EXPIRY] Initial check completed: ${result.message}`);
+    })
+    .catch(error => {
+      console.error('❌ [LICENSE EXPIRY] Initial check failed:', error);
+    });
+  
+  // Run every 24 hours (86400000 ms)
+  licenseExpiryInterval = setInterval(async () => {
+    try {
+      const result = await licenseExpiryService.checkAndSuspendExpiredLicenses();
+      console.log(`✅ [LICENSE EXPIRY] Daily check completed: ${result.message}`);
+    } catch (error) {
+      console.error('❌ [LICENSE EXPIRY] Daily check failed:', error);
+    }
+  }, 24 * 60 * 60 * 1000); // 24 hours
+}
+
 const PORT = process.env.PORT || 5000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 5443;
 const HOST = '0.0.0.0';
@@ -344,6 +374,9 @@ if (ENABLE_HTTPS) {
       
       // Start display status service in all environments
       displayStatusInterval = displayStatusService.startDisplayStatusService();
+      
+      // Start license expiry check (runs daily)
+      startLicenseExpiryCheck();
     });
 
     // Optional: Redirect HTTP to HTTPS
@@ -374,6 +407,9 @@ if (ENABLE_HTTPS) {
     
     // Start display status service in all environments
     displayStatusInterval = displayStatusService.startDisplayStatusService();
+    
+    // Start license expiry check (runs daily)
+    startLicenseExpiryCheck();
   });
 }
 

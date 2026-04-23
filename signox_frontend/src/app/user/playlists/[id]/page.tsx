@@ -281,144 +281,7 @@ function SortableItem({
   );
 }
 
-function AddToPlaylistDialog({
-  media,
-  open,
-  onOpenChange,
-  onConfirm,
-}: {
-  media: Media | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (orientation: OrientationType, resizeMode: ResizeModeType, rotation: RotationDeg) => void;
-}) {
-  const [orientation, setOrientation] = useState<OrientationType>('LANDSCAPE');
-  const [resizeMode, setResizeMode] = useState<ResizeModeType>('FIT');
-  const [rotation, setRotation] = useState<RotationDeg>(0);
 
-  useEffect(() => {
-    if (open) {
-      setOrientation('LANDSCAPE');
-      setResizeMode('FIT');
-      setRotation(0);
-    }
-  }, [open]);
-
-  if (!media) return null;
-
-  const thumbnailUrl = resolvePublicMediaUrl(media.url, PUBLIC_BASE) ?? '';
-  const isImage = media.type === 'IMAGE';
-  const fitClass = objectFitClass[resizeMode];
-  const isPortrait = orientation === 'PORTRAIT';
-  // When image is rotated 90 or 270, its effective aspect is swapped — use portrait frame so rotated image fits
-  const usePortraitFrame = isPortrait || rotation === 90 || rotation === 270;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-white border border-gray-200 shadow-lg playlist-sequence-dialog">
-        <DialogHeader>
-          <DialogTitle className="text-gray-900">Add to playlist</DialogTitle>
-          <DialogDescription className="text-gray-600">
-            Set orientation, rotation, and resize for &quot;{media.name}&quot;
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 bg-white">
-          <div className="grid grid-cols-2 gap-4 bg-white p-4 rounded-lg border border-gray-100 form-section">
-            <div>
-              <Label className="text-sm font-medium text-gray-700">Orientation</Label>
-              <select
-                value={orientation}
-                onChange={(e) => setOrientation(e.target.value as OrientationType)}
-                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="LANDSCAPE">Landscape</option>
-                <option value="PORTRAIT">Portrait</option>
-              </select>
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-gray-700">Rotation</Label>
-              <select
-                value={rotation}
-                onChange={(e) => setRotation(Number(e.target.value) as RotationDeg)}
-                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value={0}>0°</option>
-                <option value={90}>90° CW</option>
-                <option value={180}>180°</option>
-                <option value={270}>270° (90° CCW)</option>
-              </select>
-              <p className="text-xs text-gray-500 mt-0.5">Turn the image</p>
-            </div>
-            <div className="col-span-2">
-              <Label className="text-sm font-medium text-gray-700">Resize</Label>
-              <select
-                value={resizeMode}
-                onChange={(e) => setResizeMode(e.target.value as ResizeModeType)}
-                className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="FIT">Fit (contain)</option>
-                <option value="FILL">Fill (cover)</option>
-                <option value="STRETCH">Stretch</option>
-              </select>
-            </div>
-          </div>
-          <div className="bg-white p-4 rounded-lg border border-gray-100 form-section">
-            <Label className="text-sm font-medium text-gray-700 mb-2 block">Preview</Label>
-            <div
-              className={`mx-auto overflow-hidden rounded-lg border-2 border-gray-300 bg-gray-900 flex items-center justify-center relative preview-container ${
-                usePortraitFrame ? 'w-32 aspect-[9/16]' : 'w-full max-w-xs aspect-video'
-              }`}
-            >
-              {isImage ? (
-                (rotation === 90 || rotation === 270) ? (
-                  <div
-                    className="absolute flex items-center justify-center"
-                    style={{
-                      width: usePortraitFrame ? '177.78%' : '56.25%',
-                      height: usePortraitFrame ? '56.25%' : '177.78%',
-                      left: '50%',
-                      top: '50%',
-                      transform: `translate(-50%, -50%) rotate(${rotation === 90 ? -90 : 90}deg)`,
-                      transformOrigin: 'center center',
-                    }}
-                  >
-                    <img
-                      src={thumbnailUrl}
-                      alt={media.name}
-                      className={`${fitClass} w-full h-full`}
-                    />
-                  </div>
-                ) : (
-                  <img
-                    src={thumbnailUrl}
-                    alt={media.name}
-                    className={`${fitClass} w-full h-full`}
-                    style={{
-                      transform: `rotate(${rotation}deg)`,
-                      transformOrigin: 'center center',
-                    }}
-                  />
-                )
-              ) : (
-                <div className="flex h-full items-center justify-center">
-                  <FileVideo className="h-12 w-12 text-white" />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        <DialogFooter className="bg-white pt-4 border-t border-gray-100">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="bg-white text-gray-700 border-gray-300 hover:bg-gray-50">
-            Cancel
-          </Button>
-          <Button onClick={() => onConfirm(orientation, resizeMode, rotation)} className="bg-blue-600 text-white hover:bg-blue-700">
-            Add to playlist
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function MediaCard({ media, isInPlaylist, onAdd, canEdit }: { 
   media: Media; 
@@ -486,7 +349,6 @@ export default function PlaylistEditorPage() {
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [addDialogMedia, setAddDialogMedia] = useState<Media | null>(null);
   const [refreshingMedia, setRefreshingMedia] = useState(false);
 
   const canEdit = user?.role === 'USER_ADMIN' || user?.staffRole === 'BROADCAST_MANAGER';
@@ -640,12 +502,7 @@ export default function PlaylistEditorPage() {
     setItems([...items, newItem]);
   };
 
-  const handleAddConfirm = (orientation: OrientationType, resizeMode: ResizeModeType, rotation: RotationDeg) => {
-    if (addDialogMedia) {
-      handleAddMedia(addDialogMedia, orientation, resizeMode, rotation);
-      setAddDialogMedia(null);
-    }
-  };
+
 
   const handleRemoveItem = (mediaId: string) => {
     if (!canEdit) return;
@@ -859,7 +716,7 @@ export default function PlaylistEditorPage() {
                         key={mediaItem.id}
                         media={mediaItem}
                         isInPlaylist={isInPlaylist}
-                        onAdd={() => setAddDialogMedia(mediaItem)}
+                        onAdd={() => handleAddMedia(mediaItem)}
                         canEdit={canEdit}
                       />
                     );
@@ -945,13 +802,6 @@ export default function PlaylistEditorPage() {
             </DndContext>
           </div>
         </div>
-
-        <AddToPlaylistDialog
-          media={addDialogMedia}
-          open={!!addDialogMedia}
-          onOpenChange={(open) => !open && setAddDialogMedia(null)}
-          onConfirm={handleAddConfirm}
-        />
       </div>
     </DashboardLayout>
   );

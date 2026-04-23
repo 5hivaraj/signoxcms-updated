@@ -25,9 +25,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Loader2, Plus, Power, Search, Edit, Trash2, Users, Building2 } from 'lucide-react';
+import { Loader2, Plus, Search, Edit, Trash2, Users, Building2, Eye, Phone, Calendar, HardDrive, Upload, UserCheck, Monitor } from 'lucide-react';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 
@@ -74,27 +75,20 @@ export default function SuperAdminClientsPage() {
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedClient, setSelectedClient] = useState<ClientAdmin | null>(null);
+  const [clientStats, setClientStats] = useState<any>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
   
   const [form, setForm] = useState({
     name: '',
     email: '',
     password: '',
     companyName: '',
-    maxDisplays: '10',
-    maxUsers: '5',
-    maxStorageMB: '25',
-    maxMonthlyUsageMB: '150',
-    licenseExpiry: '',
   });
 
   const [editForm, setEditForm] = useState({
     companyName: '',
-    maxDisplays: '10',
-    maxUsers: '5',
-    maxStorageMB: '25',
-    maxMonthlyUsageMB: '150',
-    licenseExpiry: '',
     contactEmail: '',
     contactPhone: '',
   });
@@ -173,11 +167,6 @@ export default function SuperAdminClientsPage() {
         email: form.email,
         password: form.password,
         companyName: form.companyName,
-        maxDisplays: Number(form.maxDisplays || 10),
-        maxUsers: Number(form.maxUsers || 5),
-        maxStorageMB: Number(form.maxStorageMB || 25),
-        maxMonthlyUsageMB: Number(form.maxMonthlyUsageMB || 150),
-        licenseExpiry: form.licenseExpiry || null,
       });
 
       setOpen(false);
@@ -186,11 +175,6 @@ export default function SuperAdminClientsPage() {
         email: '',
         password: '',
         companyName: '',
-        maxDisplays: '10',
-        maxUsers: '5',
-        maxStorageMB: '25',
-        maxMonthlyUsageMB: '150',
-        licenseExpiry: '',
       });
 
       await fetchClients();
@@ -202,49 +186,68 @@ export default function SuperAdminClientsPage() {
   }
 
   async function toggleStatus(id: string) {
-    try {
-      setSaving(true);
-      setError('');
-      console.log('🔄 Attempting to toggle status for client:', id);
-      console.log('🔑 Current user:', user);
-      
-      const response = await api.patch(`/users/client-admins/${id}/status`);
-      console.log('✅ Toggle status response:', response.data);
-      
-      await fetchClients();
-    } catch (e: any) {
-      console.error('❌ Toggle status error:', {
-        status: e?.response?.status,
-        statusText: e?.response?.statusText,
-        data: e?.response?.data,
-        message: e?.message
-      });
-      
-      const errorMsg = e?.response?.data?.message || 'Failed to update status';
-      setError(errorMsg);
-    } finally {
-      setSaving(false);
-    }
+    // This functionality has been removed
+    setError('Client Admin suspension has been disabled. Only Client Admins can manage their User Admins.');
+    return;
   }
 
-  function openEditDialog(client: ClientAdmin) {
+  // Open Client Details Dialog
+  const openDetailsDialog = async (client: ClientAdmin) => {
+    setSelectedClient(client);
+    setDetailsDialogOpen(true);
+    setLoadingStats(true);
+    
+    try {
+      // Fetch client statistics (user admins, displays, total displays)
+      const [userAdminsRes, displaysRes] = await Promise.all([
+        api.get(`/users?managedByClientAdminId=${client.id}`),
+        api.get(`/displays?clientAdminId=${client.id}`)
+      ]);
+      
+      const userAdmins = Array.isArray(userAdminsRes.data) ? userAdminsRes.data : userAdminsRes.data.users || [];
+      const displays = Array.isArray(displaysRes.data) ? displaysRes.data : displaysRes.data.displays || [];
+      
+      // Calculate statistics
+      const activeUserAdmins = userAdmins.filter((ua: any) => ua.isActive);
+      const suspendedUserAdmins = userAdmins.filter((ua: any) => !ua.isActive);
+      const totalDisplays = displays.length;
+      const activeDisplays = displays.filter((d: any) => d.isOnline).length;
+      
+      setClientStats({
+        totalUserAdmins: userAdmins.length,
+        activeUserAdmins: activeUserAdmins.length,
+        suspendedUserAdmins: suspendedUserAdmins.length,
+        totalDisplays,
+        activeDisplays,
+        userAdminsList: userAdmins,
+      });
+    } catch (error) {
+      console.error('Failed to fetch client stats:', error);
+      setClientStats({
+        totalUserAdmins: 0,
+        activeUserAdmins: 0,
+        suspendedUserAdmins: 0,
+        totalDisplays: 0,
+        activeDisplays: 0,
+        userAdminsList: [],
+      });
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  const openEditDialog = (client: ClientAdmin) => {
     setSelectedClient(client);
     setEditForm({
       companyName: client.clientProfile?.companyName || '',
-      maxDisplays: client.clientProfile?.maxDisplays?.toString() || '10',
-      maxUsers: client.clientProfile?.maxUsers?.toString() || '5',
-      maxStorageMB: client.clientProfile?.maxStorageMB?.toString() || '25',
-      maxMonthlyUsageMB: (client.clientProfile as any)?.maxMonthlyUsageMB?.toString() || '150',
-      licenseExpiry: client.clientProfile?.licenseExpiry ? 
-        new Date(client.clientProfile.licenseExpiry).toISOString().split('T')[0] : '',
       contactEmail: client.clientProfile?.contactEmail || '',
       contactPhone: client.clientProfile?.contactPhone || '',
     });
     setEditOpen(true);
     setError('');
-  }
+  };
 
-  async function updateClient() {
+  const updateClient = async () => {
     if (!selectedClient) return;
 
     try {
@@ -258,11 +261,6 @@ export default function SuperAdminClientsPage() {
 
       await api.put(`/users/client-admins/${selectedClient.id}`, {
         companyName: editForm.companyName,
-        maxDisplays: Number(editForm.maxDisplays || 10),
-        maxUsers: Number(editForm.maxUsers || 5),
-        maxStorageMB: Number(editForm.maxStorageMB || 25),
-        maxMonthlyUsageMB: Number(editForm.maxMonthlyUsageMB || 150),
-        licenseExpiry: editForm.licenseExpiry || null,
         contactEmail: editForm.contactEmail || null,
         contactPhone: editForm.contactPhone || null,
       });
@@ -271,11 +269,6 @@ export default function SuperAdminClientsPage() {
       setSelectedClient(null);
       setEditForm({
         companyName: '',
-        maxDisplays: '10',
-        maxUsers: '5',
-        maxStorageMB: '25',
-        maxMonthlyUsageMB: '150',
-        licenseExpiry: '',
         contactEmail: '',
         contactPhone: '',
       });
@@ -286,14 +279,14 @@ export default function SuperAdminClientsPage() {
     } finally {
       setSaving(false);
     }
-  }
+  };
 
-  function openDeleteDialog(client: ClientAdmin) {
+  const openDeleteDialog = (client: ClientAdmin) => {
     setSelectedClient(client);
     setDeleteOpen(true);
-  }
+  };
 
-  async function deleteClient() {
+  const deleteClient = async () => {
     if (!selectedClient) return;
 
     try {
@@ -309,7 +302,7 @@ export default function SuperAdminClientsPage() {
     } finally {
       setSaving(false);
     }
-  }
+  };
 
   if (!isSuperAdmin) {
     return (
@@ -333,7 +326,7 @@ export default function SuperAdminClientsPage() {
                   <h1 className="text-4xl font-black text-white">Manage Clients</h1>
                 </div>
                 <p className="text-gray-300 text-lg">
-                  Create, manage, and suspend tenant (Client Admin) accounts. Define commercial constraints.
+                  Create and manage tenant (Client Admin) accounts. Suspension is now handled at the User Admin level by Client Admins.
                 </p>
               </div>
 
@@ -348,7 +341,7 @@ export default function SuperAdminClientsPage() {
               <DialogHeader>
                 <DialogTitle className="text-gray-900">Add New Tenant (Client Admin)</DialogTitle>
                 <DialogDescription className="text-gray-600">
-                  Create a Client Admin user and define limits (max displays/users and license expiry).
+                  Create a Client Admin user. License expiry and limits are managed at the User Admin level.
                 </DialogDescription>
               </DialogHeader>
 
@@ -385,55 +378,6 @@ export default function SuperAdminClientsPage() {
                       value={form.password}
                       onChange={(e) => setForm({ ...form, password: e.target.value })}
                       required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-4">
-                  <div className="space-y-2">
-                    <Label>Max Displays</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={form.maxDisplays}
-                      onChange={(e) => setForm({ ...form, maxDisplays: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Max Users</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={form.maxUsers}
-                      onChange={(e) => setForm({ ...form, maxUsers: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Storage Limit (MB)</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={form.maxStorageMB}
-                      onChange={(e) => setForm({ ...form, maxStorageMB: e.target.value })}
-                    />
-                    <p className="text-xs text-gray-500">Maximum disk space for stored files</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Monthly Usage Limit (MB)</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      value={form.maxMonthlyUsageMB}
-                      onChange={(e) => setForm({ ...form, maxMonthlyUsageMB: e.target.value })}
-                    />
-                    <p className="text-xs text-gray-500">Maximum uploads per month (resets monthly)</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>License Expiry</Label>
-                    <Input
-                      type="date"
-                      value={form.licenseExpiry}
-                      onChange={(e) => setForm({ ...form, licenseExpiry: e.target.value })}
                     />
                   </div>
                 </div>
@@ -525,10 +469,6 @@ export default function SuperAdminClientsPage() {
                   <TableHead>Client ID</TableHead>
                   <TableHead>Company Name</TableHead>
                   <TableHead>Admin Email</TableHead>
-                  <TableHead className="w-[160px]">Displays (Used / Max)</TableHead>
-                  <TableHead className="w-[130px]">Max Users</TableHead>
-                  <TableHead className="w-[140px]">Storage Limit</TableHead>
-                  <TableHead className="w-[180px]">License</TableHead>
                   <TableHead className="w-[140px]">Status</TableHead>
                   <TableHead className="w-[140px] text-right">Actions</TableHead>
                 </TableRow>
@@ -541,12 +481,8 @@ export default function SuperAdminClientsPage() {
                   
                   // Determine license status badge
                   let licenseBadge = null;
-                  if (c.licenseStatus === 'expired' || c.isExpired) {
-                    licenseBadge = <Badge variant="destructive" className="ml-2">Expired</Badge>;
-                  } else if (c.licenseStatus === 'suspended') {
+                  if (c.licenseStatus === 'suspended') {
                     licenseBadge = <Badge variant="destructive" className="ml-2">Suspended</Badge>;
-                  } else if (c.licenseStatus === 'expiring_soon' && c.daysUntilExpiry !== null) {
-                    licenseBadge = <Badge className="ml-2 bg-orange-500 hover:bg-orange-600">Expires in {c.daysUntilExpiry}d</Badge>;
                   }
 
                   return (
@@ -555,33 +491,31 @@ export default function SuperAdminClientsPage() {
                         {c.clientProfile?.clientId || '—'}
                       </TableCell>
                       <TableCell className="font-medium">
-                        <div className="flex flex-col">
-                          <span>{c.clientProfile?.companyName || '—'}</span>
-                        </div>
+                        <button
+                          onClick={() => openDetailsDialog(c)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        >
+                          {c.clientProfile?.companyName || '—'}
+                        </button>
                       </TableCell>
                       <TableCell>{c.email}</TableCell>
                       <TableCell>
-                        {displaysUsed}/{maxDisplays || '—'}
-                      </TableCell>
-                      <TableCell>{c.clientProfile?.maxUsers ?? '—'}</TableCell>
-                      <TableCell>{maxStorageMB}MB</TableCell>
-                      <TableCell>
-                        <div className="flex items-center">
-                          {fmtDate(c.clientProfile?.licenseExpiry)}
-                          {licenseBadge}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {c.isActive && c.licenseStatus !== 'expired' && c.licenseStatus !== 'suspended' ? (
-                          <Badge variant="success">Active</Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            {c.licenseStatus === 'expired' ? 'Expired' : 'Suspended'}
-                          </Badge>
-                        )}
+                        <Badge variant={c.isActive ? "default" : "destructive"}>
+                          {c.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 text-blue-500 hover:text-blue-700"
+                            onClick={() => openDetailsDialog(c)}
+                            disabled={saving}
+                          >
+                            <Eye className="h-4 w-4" />
+                            View
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -591,20 +525,6 @@ export default function SuperAdminClientsPage() {
                           >
                             <Edit className="h-4 w-4" />
                             Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-2"
-                            onClick={() => toggleStatus(c.id)}
-                            disabled={saving}
-                          >
-                            {saving ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Power className="h-4 w-4" />
-                            )}
-                            {c.isActive ? 'Suspend' : 'Activate'}
                           </Button>
                           <Button
                             variant="outline"
@@ -623,14 +543,14 @@ export default function SuperAdminClientsPage() {
                 })}
                 {filteredClients.length === 0 && clients.length > 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center text-gray-500">
+                    <TableCell colSpan={5} className="text-center text-gray-500">
                       No clients found matching "{searchTerm}".
                     </TableCell>
                   </TableRow>
                 )}
                 {clients.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center text-gray-500">
+                    <TableCell colSpan={5} className="text-center text-gray-500">
                       No Client Admins found.
                     </TableCell>
                   </TableRow>
@@ -641,13 +561,265 @@ export default function SuperAdminClientsPage() {
         )}
       </div>
 
+      {/* CLIENT DETAILS MODAL */}
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="bg-white max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl flex items-center gap-3">
+              <Eye className="h-6 w-6 text-blue-500" />
+              Client Admin Details
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedClient && (
+            <div className="space-y-6">
+              {/* Basic Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Building2 className="h-5 w-5 text-blue-500" />
+                      Basic Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div>
+                      <Label className="text-sm font-semibold text-gray-600">Client ID</Label>
+                      <p className="text-base font-medium font-mono">{selectedClient.clientProfile?.clientId || 'Not assigned'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-semibold text-gray-600">Admin Email</Label>
+                      <p className="text-base font-medium">{selectedClient.email}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-semibold text-gray-600">Status</Label>
+                      <div className="mt-1">
+                        <Badge className={selectedClient.isActive ? "bg-green-500" : "bg-red-500"}>
+                          {selectedClient.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-semibold text-gray-600">Created</Label>
+                      <p className="text-base">
+                        {selectedClient.createdAt ? new Date(selectedClient.createdAt).toLocaleDateString() : 'Unknown'}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Building2 className="h-5 w-5 text-purple-500" />
+                      Company Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div>
+                      <Label className="text-sm font-semibold text-gray-600">Company Name</Label>
+                      <p className="text-base font-medium">
+                        {selectedClient.clientProfile?.companyName || 'Not specified'}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-semibold text-gray-600">Contact Email</Label>
+                      <p className="text-base flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-gray-400" />
+                        {selectedClient.clientProfile?.contactEmail || 'Not specified'}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-semibold text-gray-600">Contact Phone</Label>
+                      <p className="text-base flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-gray-400" />
+                        {selectedClient.clientProfile?.contactPhone || 'Not specified'}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Statistics Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Users className="h-5 w-5 text-green-500" />
+                      User Admin Statistics
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {loadingStats ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                        <span className="ml-2 text-gray-600">Loading statistics...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-blue-50 p-3 rounded-lg">
+                            <Label className="text-xs font-semibold text-blue-600 uppercase">Total User Admins</Label>
+                            <p className="text-2xl font-bold text-blue-700">
+                              {clientStats?.totalUserAdmins || 0}
+                            </p>
+                          </div>
+                          <div className="bg-green-50 p-3 rounded-lg">
+                            <Label className="text-xs font-semibold text-green-600 uppercase">Active</Label>
+                            <p className="text-2xl font-bold text-green-700">
+                              {clientStats?.activeUserAdmins || 0}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-orange-50 p-3 rounded-lg">
+                            <Label className="text-xs font-semibold text-orange-600 uppercase">Suspended</Label>
+                            <p className="text-2xl font-bold text-orange-700">
+                              {clientStats?.suspendedUserAdmins || 0}
+                            </p>
+                          </div>
+                          <div className="bg-purple-50 p-3 rounded-lg">
+                            <Label className="text-xs font-semibold text-purple-600 uppercase">Active Rate</Label>
+                            <p className="text-2xl font-bold text-purple-700">
+                              {clientStats?.totalUserAdmins > 0 
+                                ? Math.round((clientStats.activeUserAdmins / clientStats.totalUserAdmins) * 100)
+                                : 0}%
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Monitor className="h-5 w-5 text-indigo-500" />
+                      Display Statistics
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {loadingStats ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                        <span className="ml-2 text-gray-600">Loading display data...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-blue-50 p-3 rounded-lg">
+                            <Label className="text-xs font-semibold text-blue-600 uppercase">Total Displays</Label>
+                            <p className="text-2xl font-bold text-blue-700">
+                              {clientStats?.totalDisplays || 0}
+                            </p>
+                          </div>
+                          <div className="bg-green-50 p-3 rounded-lg">
+                            <Label className="text-xs font-semibold text-green-600 uppercase">Online</Label>
+                            <p className="text-2xl font-bold text-green-700">
+                              {clientStats?.activeDisplays || 0}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-red-50 p-3 rounded-lg">
+                            <Label className="text-xs font-semibold text-red-600 uppercase">Offline</Label>
+                            <p className="text-2xl font-bold text-red-700">
+                              {(clientStats?.totalDisplays || 0) - (clientStats?.activeDisplays || 0)}
+                            </p>
+                          </div>
+                          <div className="bg-purple-50 p-3 rounded-lg">
+                            <Label className="text-xs font-semibold text-purple-600 uppercase">Online Rate</Label>
+                            <p className="text-2xl font-bold text-purple-700">
+                              {clientStats?.totalDisplays > 0 
+                                ? Math.round((clientStats.activeDisplays / clientStats.totalDisplays) * 100)
+                                : 0}%
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* User Admins List */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <UserCheck className="h-5 w-5 text-yellow-500" />
+                    User Admins Under This Client
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {loadingStats ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                      <span className="ml-2 text-gray-600">Loading user admins...</span>
+                    </div>
+                  ) : clientStats?.userAdminsList?.length > 0 ? (
+                    <div className="space-y-3">
+                      {clientStats.userAdminsList.map((userAdmin: any, index: number) => (
+                        <div key={userAdmin.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border">
+                          <div className="flex items-center gap-4">
+                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                              <span className="text-sm font-semibold text-blue-600">{index + 1}</span>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">{userAdmin.email}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <Badge className={userAdmin.isActive ? "bg-green-500" : "bg-red-500"}>
+                                  {userAdmin.isActive ? 'Active' : 'Suspended'}
+                                </Badge>
+                                {userAdmin.userAdminProfile?.companyName && (
+                                  <span className="text-sm text-gray-600">
+                                    {userAdmin.userAdminProfile.companyName}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right text-sm text-gray-600">
+                            <div>Displays: {userAdmin.userAdminProfile?.maxDisplays || 0}</div>
+                            <div>Staff: {userAdmin.userAdminProfile?.maxUsers || 0}</div>
+                            {userAdmin.userAdminProfile?.licenseExpiry && (
+                              <div className="text-xs mt-1">
+                                License: {new Date(userAdmin.userAdminProfile.licenseExpiry).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                      <p>No User Admins found under this client.</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-end">
+                <Button 
+                  onClick={() => setDetailsDialogOpen(false)}
+                  className="bg-gray-500 hover:bg-gray-600"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Client Dialog */}
       <Dialog open={editOpen} onOpenChange={(v) => !saving && setEditOpen(v)}>
         <DialogContent className="sm:max-w-[560px] bg-white border border-gray-200 shadow-lg">
           <DialogHeader>
             <DialogTitle className="text-gray-900">Edit Client</DialogTitle>
             <DialogDescription className="text-gray-600">
-              Update client limits and settings. Changes will be reflected immediately.
+              Update client information. License expiry and limits are managed at the User Admin level.
             </DialogDescription>
           </DialogHeader>
 
@@ -678,58 +850,6 @@ export default function SuperAdminClientsPage() {
                   value={editForm.contactPhone}
                   onChange={(e) => setEditForm({ ...editForm, contactPhone: e.target.value })}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label>License Expiry</Label>
-                <Input
-                  type="date"
-                  value={editForm.licenseExpiry}
-                  onChange={(e) => setEditForm({ ...editForm, licenseExpiry: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Max Displays</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={editForm.maxDisplays}
-                  onChange={(e) => setEditForm({ ...editForm, maxDisplays: e.target.value })}
-                />
-                <p className="text-xs text-gray-500">
-                  Current: {selectedClient?.displaysUsed || 0} displays
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Max Users</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={editForm.maxUsers}
-                  onChange={(e) => setEditForm({ ...editForm, maxUsers: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Storage Limit (MB)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={editForm.maxStorageMB}
-                  onChange={(e) => setEditForm({ ...editForm, maxStorageMB: e.target.value })}
-                />
-                <p className="text-xs text-gray-500">Maximum disk space</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Monthly Usage Limit (MB)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={editForm.maxMonthlyUsageMB}
-                  onChange={(e) => setEditForm({ ...editForm, maxMonthlyUsageMB: e.target.value })}
-                />
-                <p className="text-xs text-gray-500">Monthly upload quota</p>
               </div>
             </div>
 

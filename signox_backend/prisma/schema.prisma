@@ -103,6 +103,9 @@ model User {
   managedByClientAdmin   User?   @relation("ClientAdminToUserAdmins", fields: [managedByClientAdminId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   userAdmins             User[]  @relation("ClientAdminToUserAdmins") // Client Admin has many User Admins
 
+  // User Admin profile with limits
+  userAdminProfile UserAdminProfile? // One-to-one: User Admin has one profile with limits
+
   // User Admin manages Displays
   managedDisplays Display[] // User Admin manages many Displays
 
@@ -130,18 +133,7 @@ model ClientProfile {
   clientAdminId String @unique @db.ObjectId // One-to-one with Client Admin User
   clientId      String @unique // Human-readable client ID (e.g., "CL-001", "CL-ABC123")
 
-  // License and limits
-  maxDisplays   Int       @default(10)
-  maxUsers      Int       @default(5)
-  maxStorageMB  Int       @default(25) // Maximum storage in MB for all media (disk space limit)
-  
-  // Monthly usage limits (bandwidth/transfer quota)
-  maxMonthlyUsageMB    Int     @default(150) // Maximum uploads per month (6x storage by default)
-  monthlyUploadedBytes BigInt  @default(0) // Cumulative uploads this month
-  usageQuotaResetDate  DateTime @default(now()) // Last quota reset date
-  billingDayOfMonth    Int     @default(1) // Day of month to reset quota (1-28)
-  
-  licenseExpiry DateTime?
+  // Basic client info (no limits - limits are now at USER_ADMIN level)
   isActive      Boolean   @default(true)
 
   // Metadata
@@ -154,6 +146,36 @@ model ClientProfile {
 
   // Relations
   clientAdmin User @relation(fields: [clientAdminId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+// New model for USER_ADMIN limits and quotas
+model UserAdminProfile {
+  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  userAdminId String @unique @db.ObjectId // One-to-one with User Admin User
+  
+  // Company information
+  companyName   String? // Company name for this USER_ADMIN
+  contactNumber String? // Contact number for this USER_ADMIN
+  
+  // License and limits (moved from ClientProfile)
+  maxDisplays   Int       @default(10)
+  maxUsers      Int       @default(5) // Max STAFF users this USER_ADMIN can create
+  maxStorageMB  Int       @default(25) // Maximum storage in MB for all media (disk space limit)
+  
+  // Monthly usage limits (bandwidth/transfer quota)
+  maxMonthlyUsageMB    Int     @default(150) // Maximum uploads per month (6x storage by default)
+  monthlyUploadedBytes BigInt  @default(0) // Cumulative uploads this month
+  usageQuotaResetDate  DateTime @default(now()) // Last quota reset date
+  billingDayOfMonth    Int     @default(1) // Day of month to reset quota (1-28)
+  
+  licenseExpiry DateTime?
+  isActive      Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userAdmin User @relation(fields: [userAdminId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 // ============================================

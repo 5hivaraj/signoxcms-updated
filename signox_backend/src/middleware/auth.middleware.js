@@ -44,11 +44,13 @@ const requireAuth = async (req, res, next) => {
         where: { id: decoded.id },
         include: {
           clientProfile: true,
+          userAdminProfile: true,
           managedByClientAdmin: {
             include: { clientProfile: true },
           },
           createdByUserAdmin: {
             include: {
+              userAdminProfile: true,
               managedByClientAdmin: {
                 include: { clientProfile: true },
               },
@@ -69,6 +71,7 @@ const requireAuth = async (req, res, next) => {
       // LICENSE CHECK SECTION
       // =========================
       let clientProfileToCheck = null;
+      let userAdminProfileToCheck = null;
 
       if (user.role === 'CLIENT_ADMIN') {
         clientProfileToCheck = user.clientProfile;
@@ -76,26 +79,38 @@ const requireAuth = async (req, res, next) => {
 
       if (user.role === 'USER_ADMIN') {
         clientProfileToCheck = user.managedByClientAdmin?.clientProfile || null;
+        userAdminProfileToCheck = user.userAdminProfile;
       }
 
       if (user.role === 'STAFF') {
         clientProfileToCheck =
           user.createdByUserAdmin?.managedByClientAdmin?.clientProfile || null;
+        userAdminProfileToCheck = user.createdByUserAdmin?.userAdminProfile || null;
       }
 
+      // Check organization-level license (CLIENT_ADMIN level) - removed license expiry check
       if (clientProfileToCheck) {
         if (!clientProfileToCheck.isActive) {
           return res.status(403).json({
             message: 'Your organization license is suspended. Please contact support.',
           });
         }
+      }
+
+      // Check user-level license (USER_ADMIN level)
+      if (userAdminProfileToCheck) {
+        if (!userAdminProfileToCheck.isActive) {
+          return res.status(403).json({
+            message: 'Your account is suspended. Please contact support.',
+          });
+        }
 
         if (
-          clientProfileToCheck.licenseExpiry &&
-          new Date(clientProfileToCheck.licenseExpiry) < new Date()
+          userAdminProfileToCheck.licenseExpiry &&
+          new Date(userAdminProfileToCheck.licenseExpiry) < new Date()
         ) {
           return res.status(403).json({
-            message: 'Your organization license has expired. Please contact your administrator.',
+            message: 'Your license has expired. Please contact your administrator.',
           });
         }
       }
@@ -107,6 +122,7 @@ const requireAuth = async (req, res, next) => {
         role: user.role,
         staffRole: user.staffRole,
         clientProfile: user.clientProfile,
+        userAdminProfile: user.userAdminProfile,
         managedByClientAdminId: user.managedByClientAdminId,
         createdByUserAdminId: user.createdByUserAdminId,
       };

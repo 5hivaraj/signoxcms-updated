@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-const { createUser, listUsers, deleteUser, bulkDeleteUsers, getUserProfile, getUserProfileSettings, updateProfile, updatePassword, resetUserPassword, getAccountInfo } = require('../controllers/user.controller');
+const { createUser, listUsers, updateUser, deleteUser, bulkDeleteUsers, getUserProfile, getUserProfileSettings, updateProfile, updatePassword, resetUserPassword, getAccountInfo, toggleUserAdminSuspension } = require('../controllers/user.controller');
 const { requireAuth, requireSuperAdmin, requireAnyAdmin } = require('../middleware/auth.middleware');
 const {
   createClientAdmin,
@@ -14,7 +14,9 @@ const {
 // Hierarchical user management
 router.post('/', requireAuth, requireAnyAdmin, createUser);
 router.get('/', requireAuth, requireAnyAdmin, listUsers);
+router.put('/:id', requireAuth, requireAnyAdmin, updateUser);
 router.delete('/:id', requireAuth, requireAnyAdmin, deleteUser);
+router.patch('/:id/suspend', requireAuth, requireAnyAdmin, toggleUserAdminSuspension);
 router.post('/bulk-delete', requireAuth, requireAnyAdmin, bulkDeleteUsers);
 
 // Profile management
