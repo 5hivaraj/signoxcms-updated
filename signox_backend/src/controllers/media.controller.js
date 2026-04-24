@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const { checkStorageLimit, getClientStorageInfo, getUserStorageInfo, getClientAdminId, incrementMonthlyUpload } = require('../utils/storage.utils');
+const { checkStorageLimit, getClientStorageInfo, getUserStorageInfo, getClientAdminId, incrementUserMonthlyUpload } = require('../utils/storage.utils');
 const imageOptimizationService = require('../services/image-optimization.service');
 const s3Media = require('../services/s3-media.service');
 const paginationService = require('../services/pagination.service');
@@ -541,9 +541,9 @@ exports.createMedia = catchAsync(async (req, res) => {
     fileSize: media.fileSize
   });
 
-  // Increment monthly upload counter
-  await incrementMonthlyUpload(clientAdminId, fileSize);
-  console.log('📊 [MEDIA CREATE DEBUG] Monthly upload counter incremented');
+  // Increment monthly upload quota for the actual uploader's USER_ADMIN profile.
+  await incrementUserMonthlyUpload(req.user.id, fileSize);
+  console.log(`📊 [MEDIA CREATE DEBUG] Monthly upload counter incremented for user ${req.user.id}`);
 
   // Include updated storage info in response
   const updatedStorageInfo = clientAdminId ? await getClientStorageInfo(clientAdminId) : null;
