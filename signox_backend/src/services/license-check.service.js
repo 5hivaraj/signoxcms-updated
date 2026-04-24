@@ -1,69 +1,15 @@
 const cron = require('node-cron');
-const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+const licenseExpiryService = require('./license-expiry.service');
 
 let cronJob = null;
 
 /**
- * Check and suspend expired licenses
- * Runs every hour to check for expired licenses
+ * Hourly license sweep (USER_ADMIN / UserAdminProfile).
+ * ClientProfile no longer has licenseExpiry; expiry logic lives in license-expiry.service.
  */
 const checkExpiredLicenses = async () => {
   try {
-    console.log('🔍 Checking for expired licenses...');
-
-    const now = new Date();
-
-    // Find all client profiles with expired licenses that are still active
-    const expiredProfiles = await prisma.clientProfile.findMany({
-      where: {
-        isActive: true,
-        licenseExpiry: {
-          lt: now, // License expiry is less than current time
-        },
-      },
-      include: {
-        clientAdmin: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-          },
-        },
-      },
-    });
-
-    if (expiredProfiles.length === 0) {
-      console.log('✅ No expired licenses found');
-      return;
-    }
-
-    console.log(`⚠️  Found ${expiredProfiles.length} expired license(s)`);
-
-    // Suspend each expired client profile
-    for (const profile of expiredProfiles) {
-      try {
-        // Update client profile to inactive
-        await prisma.clientProfile.update({
-          where: { id: profile.id },
-          data: { isActive: false },
-        });
-
-        console.log(`🔒 Suspended license for client: ${profile.clientAdmin.email} (${profile.clientId})`);
-        console.log(`   License expired on: ${profile.licenseExpiry}`);
-        console.log(`   Company: ${profile.companyName || 'N/A'}`);
-
-        // Optionally: Send notification email to client admin
-        // await sendLicenseExpiredEmail(profile.clientAdmin.email, profile);
-
-      } catch (error) {
-        console.error(`❌ Failed to suspend license for client ${profile.clientId}:`, error.message);
-      }
-    }
-
-    console.log(`✅ License check completed. Suspended ${expiredProfiles.length} expired license(s)`);
-
+    await licenseExpiryService.checkAndSuspendExpiredLicenses();
   } catch (error) {
     console.error('❌ Error checking expired licenses:', error);
   }
@@ -79,14 +25,12 @@ const start = () => {
     return;
   }
 
-  // Run every hour at minute 0 (e.g., 1:00, 2:00, 3:00, etc.)
   cronJob = cron.schedule('0 * * * *', async () => {
     await checkExpiredLicenses();
   });
 
   console.log('🚀 License check service started (runs every hour)');
 
-  // Run immediately on startup
   checkExpiredLicenses();
 };
 

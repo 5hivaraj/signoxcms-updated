@@ -67,6 +67,10 @@ type UserProfile = {
   staffRole?: string;
   isActive: boolean;
   createdAt: string;
+  userAdminProfile?: {
+    companyName?: string | null;
+    contactNumber?: string | null;
+  } | null;
 };
 
 function formatBytes(bytes: number) {
