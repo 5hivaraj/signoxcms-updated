@@ -26,7 +26,10 @@ export function StorageIndicator({ storageInfo, className }: StorageIndicatorPro
     quotaResetDate
   } = storageInfo;
   
-  const storagePercentage = (usedMB / limitMB) * 100;
+  const safeLimitMB = Number.isFinite(limitMB) && limitMB > 0 ? limitMB : 25;
+  const safeUsedMB = Number.isFinite(usedMB) && usedMB > 0 ? usedMB : 0;
+  const safeAvailableMB = Math.max(0, safeLimitMB - safeUsedMB);
+  const storagePercentage = (safeUsedMB / safeLimitMB) * 100;
   const monthlyPercentage = maxMonthlyUsageMB && monthlyUploadedMB 
     ? (monthlyUploadedMB / maxMonthlyUsageMB) * 100 
     : 0;
@@ -59,7 +62,7 @@ export function StorageIndicator({ storageInfo, className }: StorageIndicatorPro
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium text-gray-700">Current Storage</span>
           <span className={cn('font-medium', getTextColor(storagePercentage))}>
-            {usedMB.toFixed(1)}MB / {limitMB}MB
+            {safeUsedMB.toFixed(1)}MB / {safeLimitMB}MB
           </span>
         </div>
         
@@ -71,7 +74,7 @@ export function StorageIndicator({ storageInfo, className }: StorageIndicatorPro
         </div>
         
         <div className="flex items-center justify-between text-xs text-gray-500">
-          <span>{availableMB.toFixed(1)}MB available</span>
+          <span>{safeAvailableMB.toFixed(1)}MB available</span>
           <span>{storagePercentage.toFixed(1)}% used</span>
         </div>
       </div>

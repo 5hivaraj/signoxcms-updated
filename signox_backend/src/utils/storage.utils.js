@@ -338,8 +338,14 @@ async function getClientStorageInfo(clientAdminId) {
 
   if (userAdmins.length > 0) {
     // Aggregate all USER_ADMIN limits for CLIENT_ADMIN view
-    limitMB = userAdmins.reduce((sum, ua) => sum + (ua.userAdminProfile?.maxStorageMB || 0), 0);
-    maxMonthlyUsageMB = userAdmins.reduce((sum, ua) => sum + (ua.userAdminProfile?.maxMonthlyUsageMB || 0), 0);
+    limitMB = userAdmins.reduce((sum, ua) => {
+      const profileLimit = Number(ua.userAdminProfile?.maxStorageMB);
+      return sum + (Number.isFinite(profileLimit) && profileLimit > 0 ? profileLimit : 25);
+    }, 0);
+    maxMonthlyUsageMB = userAdmins.reduce((sum, ua) => {
+      const profileMonthlyLimit = Number(ua.userAdminProfile?.maxMonthlyUsageMB);
+      return sum + (Number.isFinite(profileMonthlyLimit) && profileMonthlyLimit > 0 ? profileMonthlyLimit : 150);
+    }, 0);
     monthlyUploadedBytes = userAdmins.reduce((sum, ua) => sum + Number(ua.userAdminProfile?.monthlyUploadedBytes || 0), 0);
     
     // Use the first USER_ADMIN's reset date and billing day as reference
@@ -351,6 +357,14 @@ async function getClientStorageInfo(clientAdminId) {
   } else {
     // Fallback to defaults if no USER_ADMINs found
     limitMB = 25;
+    maxMonthlyUsageMB = 150;
+  }
+
+  // Guard against bad migrated values (e.g. 0) so UI never shows "/0MB".
+  if (!Number.isFinite(limitMB) || limitMB <= 0) {
+    limitMB = 25;
+  }
+  if (!Number.isFinite(maxMonthlyUsageMB) || maxMonthlyUsageMB <= 0) {
     maxMonthlyUsageMB = 150;
   }
 
